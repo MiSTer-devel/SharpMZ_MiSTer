@@ -42,12 +42,18 @@ The current emulations provide:
 ## Installation
 1.	Follow the Setup Guide to create a new SD boot disk. https://github.com/MiSTer-devel/Main_MiSTer/wiki/Setup-Guide
 2.	Copy across to the SD (via scp or mount the SD under Windows/Linux and use local copy commands) the latest RBF file from the releases folder, ie:-
-scp SharpMZ_MiSTer/releases/SharpMZ_<data>.rbf root@<de10 ip address>/media/fat/SharpMZ.rbf        # Target name can be anything you like ending with .rbf
+
+    scp SharpMZ_MiSTer/releases/SharpMZ_\<date\>.rbf root@\<de10 ip address\>/media/fat/SharpMZ.rbf
+    
+    Target name can be anything you like ending with .rbf
 3.	Make a SharpMZ directory on the SD card, ie:
-ssh root@<de10 ip address>
-mkdir /media/fat/SharpMZ
+
+    ssh root@\<de10 ip address\>
+    
+    mkdir /media/fat/SharpMZ
 4.	Copy any Rom Files, MZF Tape Files, DSK files across to the new directory, ie:
-scp *.mzf root@<de10 ip address>:/media/fat/SharpMZ/
+  
+    scp \*.mzf root@\<de10 ip address\>:/media/fat/SharpMZ/
 5.	Start the MiSTer menu (ie. press the DE10 reset button if it is not showing).
 6.	Select the SharpMZ core (or whatever name you called it).
 7.	The emulator will boot into an MZ80K model with the SP-1002 monitor.
