@@ -66,7 +66,7 @@ The MiSTer menu system is used extensively on this design as the Front End contr
 
 ### Tape Storage
 
-In order to use the emulation seriously, you need to be able to load and save existing programs. Initially this was via a CMT (tape) unit and later moved on to Floppy/Quick Disks.
+In order to use the emulation seriously, you need to be able to load and save existing programs. Initially (on the original machines) this was via a CMT (tape) unit and later moved on to Floppy/Quick Disks.
 
 This menu controls the hardware CMT unit and has the following choices:
 - Load direct to RAM
