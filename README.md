@@ -64,7 +64,8 @@ As the Cyclone V SE on the Terasic DE10 has 5.5Mbits of memory, nearly all the R
 ### Menu System
 The MiSTer menu system is used extensively on this design as the Front End control. It allows for loading/saving of cassettes and floppy disks, setting the machine parameters, the display parameters, debugging and access to the MiSTer control menu.
 
-Tape Storage
+### Tape Storage
+
 In order to use the emulation seriously, you need to be able to load and save existing programs. Initially this was via a CMT (tape) unit and later moved on to Floppy/Quick Disks.
 
 This menu controls the hardware CMT unit and has the following choices:
