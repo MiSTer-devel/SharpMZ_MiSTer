@@ -1,4 +1,7 @@
 # Sharp MZ Series Personal and Business Computer Emulation
+
+Please consult my [GitHub](https://pdsmart.github.io) website for more upto date information, I will update this repository shortly.
+
 Written by Philip Smart, 2018 for the Terasic DE10 Nano board under the MiSTer framework.
 
 This project aims to provide full emulation (along with extensions) of the Sharp MZ Series Computers.
@@ -9,16 +12,16 @@ The following emulations have been written
   - MZ1200 
   - MZ80A
   - MZ700
+  - MZ80B
   
  and the following are under development:
  - MZ800
- - MZ80B
  - MZ2000
 
-The current emulations provide:
+The current version of the emulator provides:
 
   -	48K RAM for MZ80K,C,1200,A
-  -	64K RAM for MZ700
+  -	64K RAM for MZ700, MZ80B
   -	Hardware Tape Read/Write with selectable 1x - 32x Fast Mode
   -	Turbo Mode 1x - 32x (ie. 112MHz for MZ700)
   -	Programmable Character Generator (PCG-8000/PCG-1200)
