@@ -32,8 +32,8 @@
 # Title and Versioning.
 #
 $TITLE                  = "ROM Tool";
-$VERSION                = "0.4";
-$VERSIONDATE            = "20.09.2018";
+$VERSION                = "0.5";
+$VERSIONDATE            = "12.10.2018";
 
 # Global Modules.
 #
@@ -470,12 +470,15 @@ sub argOptions
         print STDOUT "                     --k_cgrom=<file>                                      |\n";
         print STDOUT "                     --7_cgrom=<file>                                      |\n";
         print STDOUT "                     --12_cgrom=<file>                                     |\n";
+        print STDOUT "                     --20_cgrom=<file>                                     |\n";
         print STDOUT "                     --a_keymap=<file>                                     |\n";
         print STDOUT "                     --b_keymap=<file>                                     |\n";
         print STDOUT "                     --c_keymap=<file>                                     |\n";
         print STDOUT "                     --k_keymap=<file>                                     |\n";
         print STDOUT "                     --7_keymap=<file>                                     |\n";
+        print STDOUT "                     --8_keymap=<file>                                     |\n";
         print STDOUT "                     --12_keymap=<file>                                    |\n";
+        print STDOUT "                     --20_keymap=<file>                                    |\n";
         print STDOUT "           options = --debug=<1=ON, 0=OFF>\n";
         print STDOUT "\n";
     }
@@ -593,13 +596,17 @@ GetOptions( "debug=n"               => \$debugMode,            # Debug Mode?
             "c_cgrom=s"             => \$modelC_CGFile,        # Model 80C CG Rom.
             "k_cgrom=s"             => \$modelK_CGFile,        # Model 80K CG Rom.
             "7_cgrom=s"             => \$model7_CGFile,        # Model 700 CG Rom.
+            "8_cgrom=s"             => \$model8_CGFile,        # Model 800 CG Rom.
             "12_cgrom=s"            => \$model12_CGFile,       # Model 1200 CG Rom.
+            "20_cgrom=s"            => \$model20_CGFile,       # Model 2000 CG Rom.
             "a_keymap=s"            => \$modelA_KeyFile,       # Model 80A Key Map File
             "b_keymap=s"            => \$modelB_KeyFile,       # Model 80B Key Map File
             "c_keymap=s"            => \$modelC_KeyFile,       # Model 80C Key Map File
             "k_keymap=s"            => \$modelK_KeyFile,       # Model 80K Key Map File
             "7_keymap=s"            => \$model7_KeyFile,       # Model 700 Key Map File
+            "8_keymap=s"            => \$model8_KeyFile,       # Model 800 Key Map File
             "12_keymap=s"           => \$model12_KeyFile,      # Model 1200 Key Map File
+            "20_keymap=s"           => \$model20_KeyFile,      # Model 2000 Key Map File
             "help"                  => \$help,                 # Help required on commands/options?
           );
 
@@ -1285,21 +1292,21 @@ if(defined($modelA_CGFile) && $modelA_CGFile ne "")
         argOptions(1, "No MZ80A CG ROM file given.\n",$ERR_BADARGUMENTS);
     }
 }
-#if(defined($modelB_CGFile) && $modelB_CGFile ne "")
-#{
-#    # If defined, can we open it?
-#    #
-#    if( $modelB_CGFile ne "" && ! open(B_CGFILE, "<".$modelB_CGFile) )
-#    {
-#        argOptions(1, "Cannot open CG ROM file: $modelB_CGFile.\n",$ERR_BADFILENAME);
-#    }
-#} else
-#{
-#    if($command eq "CGROM")
-#    {
-#        argOptions(1, "No MZ80B CG ROM file given.\n",$ERR_BADARGUMENTS);
-#    }
-#}
+if(defined($modelB_CGFile) && $modelB_CGFile ne "")
+{
+    # If defined, can we open it?
+    #
+    if( $modelB_CGFile ne "" && ! open(B_CGFILE, "<".$modelB_CGFile) )
+    {
+        argOptions(1, "Cannot open CG ROM file: $modelB_CGFile.\n",$ERR_BADFILENAME);
+    }
+} else
+{
+    if($command eq "CGROM")
+    {
+        argOptions(1, "No MZ80B CG ROM file given.\n",$ERR_BADARGUMENTS);
+    }
+}
 if(defined($modelC_CGFile) && $modelC_CGFile ne "")
 {
     # If defined, can we open it?
@@ -1345,6 +1352,21 @@ if(defined($model7_CGFile) && $model7_CGFile ne "")
         argOptions(1, "No MZ700 CG ROM file given.\n",$ERR_BADARGUMENTS);
     }
 }
+if(defined($model8_CGFile) && $model8_CGFile ne "")
+{
+    # If defined, can we open it?
+    #
+    if( $model8_CGFile ne "" && ! open(M8_CGFILE, "<".$model8_CGFile) )
+    {
+        argOptions(1, "Cannot open CG ROM file: $model8_CGFile.\n",$ERR_BADFILENAME);
+    }
+} else
+{
+    if($command eq "CGROM")
+    {
+        argOptions(1, "No MZ800 CG ROM file given.\n",$ERR_BADARGUMENTS);
+    }
+}
 if(defined($model12_CGFile) && $model12_CGFile ne "")
 {
     # If defined, can we open it?
@@ -1358,6 +1380,21 @@ if(defined($model12_CGFile) && $model12_CGFile ne "")
     if($command eq "CGROM")
     {
         argOptions(1, "No MZ1200 CG ROM file given.\n",$ERR_BADARGUMENTS);
+    }
+}
+if(defined($model20_CGFile) && $model20_CGFile ne "")
+{
+    # If defined, can we open it?
+    #
+    if( $model20_CGFile ne "" && ! open(M20_CGFILE, "<".$model20_CGFile) )
+    {
+        argOptions(1, "Cannot open CG ROM file: $model20_CGFile.\n",$ERR_BADFILENAME);
+    }
+} else
+{
+    if($command eq "CGROM")
+    {
+        argOptions(1, "No MZ2000 CG ROM file given.\n",$ERR_BADARGUMENTS);
     }
 }
 
@@ -1436,6 +1473,21 @@ if(defined($model7_KeyFile) && $model7_KeyFile ne "")
         argOptions(1, "No MZ700 Key Map file given.\n",$ERR_BADARGUMENTS);
     }
 }
+if(defined($model8_KeyFile) && $model8_KeyFile ne "")
+{
+    # If defined, can we open it?
+    #
+    if( $model8_KeyFile ne "" && ! open(M8_KEYFILE, "<".$model8_KeyFile) )
+    {
+        argOptions(1, "Cannot open Key Map file: $model8_KeyFile.\n",$ERR_BADFILENAME);
+    }
+} else
+{
+    if($command eq "KEYMAP")
+    {
+        argOptions(1, "No MZ800 Key Map file given.\n",$ERR_BADARGUMENTS);
+    }
+}
 if(defined($model12_KeyFile) && $model12_KeyFile ne "")
 {
     # If defined, can we open it?
@@ -1449,6 +1501,21 @@ if(defined($model12_KeyFile) && $model12_KeyFile ne "")
     if($command eq "KEYMAP")
     {
         argOptions(1, "No MZ1200 Key Map file given.\n",$ERR_BADARGUMENTS);
+    }
+}
+if(defined($model20_KeyFile) && $model20_KeyFile ne "")
+{
+    # If defined, can we open it?
+    #
+    if( $model20_KeyFile ne "" && ! open(M20_KEYFILE, "<".$model20_KeyFile) )
+    {
+        argOptions(1, "Cannot open Key Map file: $model20_KeyFile.\n",$ERR_BADFILENAME);
+    }
+} else
+{
+    if($command eq "KEYMAP")
+    {
+        argOptions(1, "No MZ2000 Key Map file given.\n",$ERR_BADARGUMENTS);
     }
 }
 
@@ -2043,6 +2110,18 @@ if($command eq "CGROM")
     }
     $M7_CGROM_SIZE = $cnt;
 
+    @M8_CGROM = ();
+    binmode(M8_CGFILE); 
+    local $/ = \1;
+    $cnt = 0;
+    $skip = 0;
+    while ( my $byte = <M8_CGFILE> )
+    {
+        $M8_CGROM[$cnt] = $byte;
+        $cnt++;
+    }
+    $M8_CGROM_SIZE = $cnt;
+
     @M12_CGROM = ();
     binmode(M12_CGFILE); 
     local $/ = \1;
@@ -2054,6 +2133,18 @@ if($command eq "CGROM")
         $cnt++;
     }
     $M12_CGROM_SIZE = $cnt;
+
+    @M20_CGROM = ();
+    binmode(M20_CGFILE); 
+    local $/ = \1;
+    $cnt = 0;
+    $skip = 0;
+    while ( my $byte = <M20_CGFILE> )
+    {
+        $M20_CGROM[$cnt] = $byte;
+        $cnt++;
+    }
+    $M20_CGROM_SIZE = $cnt;
 }
 
 if($command eq "KEYMAP")
@@ -2118,6 +2209,18 @@ if($command eq "KEYMAP")
     }
     $M7_KEYMAP_SIZE = $cnt;
 
+    @M8_KEYMAP = ();
+    binmode(M8_KEYFILE); 
+    local $/ = \1;
+    $cnt = 0;
+    $skip = 0;
+    while ( my $byte = <M8_KEYFILE> )
+    {
+        $M8_KEYMAP[$cnt] = $byte;
+        $cnt++;
+    }
+    $M8_KEYMAP_SIZE = $cnt;
+
     @M12_KEYMAP = ();
     binmode(M12_KEYFILE); 
     local $/ = \1;
@@ -2129,6 +2232,18 @@ if($command eq "KEYMAP")
         $cnt++;
     }
     $M12_KEYMAP_SIZE = $cnt;
+
+    @M20_KEYMAP = ();
+    binmode(M20_KEYFILE); 
+    local $/ = \1;
+    $cnt = 0;
+    $skip = 0;
+    while ( my $byte = <M20_KEYFILE> )
+    {
+        $M20_KEYMAP[$cnt] = $byte;
+        $cnt++;
+    }
+    $M20_KEYMAP_SIZE = $cnt;
 }
 
 if($command eq "64KRAM")
@@ -2368,6 +2483,10 @@ elsif($command eq "MONROM")
     $B_80C_MROM_MAX_SIZE    = 2048;
     $B_USERROM_MAX_SIZE     = 2048;
     $B_FDCROM_MAX_SIZE      = 4096;
+    $M20_MROM_MAX_SIZE      = 2048;
+    $M20_80C_MROM_MAX_SIZE  = 2048;
+    $M20_USERROM_MAX_SIZE   = 2048;
+    $M20_FDCROM_MAX_SIZE    = 4096;
 
     # Fill the memory image with equisize images, zero padding as necessary.
     foreach my $byte (@K_MROM)       { push @MonitorMemory, $byte; };  for(my $idx=$K_MROM_SIZE;       $idx < $K_MROM_MAX_SIZE; $idx++)       { push @MonitorMemory, "\x00"; };
@@ -2398,6 +2517,10 @@ elsif($command eq "MONROM")
     foreach my $byte (@B_80C_MROM)   { push @MonitorMemory, $byte; };  for(my $idx=$B_80C_MROM_SIZE;   $idx < $B_80C_MROM_MAX_SIZE; $idx++)   { push @MonitorMemory, "\x00"; };
     foreach my $byte (@B_USERROM)    { push @MonitorMemory, $byte; };  for(my $idx=$B_USERROM_SIZE;    $idx < $B_USERROM_MAX_SIZE; $idx++)    { push @MonitorMemory, "\x00"; };
     foreach my $byte (@B_FDCROM)     { push @MonitorMemory, $byte; };  for(my $idx=$B_FDCROM_SIZE;     $idx < $B_FDCROM_MAX_SIZE; $idx++)     { push @MonitorMemory, "\x00"; };
+    foreach my $byte (@M20_MROM)     { push @MonitorMemory, $byte; };  for(my $idx=$M20_MROM_SIZE;     $idx < $M20_MROM_MAX_SIZE; $idx++)     { push @MonitorMemory, "\x00"; };
+    foreach my $byte (@M20_80C_MROM) { push @MonitorMemory, $byte; };  for(my $idx=$M20_80C_MROM_SIZE; $idx < $M20_80C_MROM_MAX_SIZE; $idx++) { push @MonitorMemory, "\x00"; };
+    foreach my $byte (@M20_USERROM)  { push @MonitorMemory, $byte; };  for(my $idx=$M20_USERROM_SIZE;  $idx < $M20_USERROM_MAX_SIZE; $idx++)  { push @MonitorMemory, "\x00"; };
+    foreach my $byte (@M20_FDCROM)   { push @MonitorMemory, $byte; };  for(my $idx=$M20_FDCROM_SIZE;   $idx < $M20_FDCROM_MAX_SIZE; $idx++)   { push @MonitorMemory, "\x00"; };
 
     # Positions for easy reference.
     $k_romStartPosition        = 0;
@@ -2545,6 +2668,9 @@ elsif($command eq "CGROM")
     foreach my $byte (@M12_CGROM) { push @CGMemory, $byte; }; 
     foreach my $byte (@A_CGROM)   { push @CGMemory, $byte; };  
     foreach my $byte (@M7_CGROM)  { push @CGMemory, $byte; }; 
+    foreach my $byte (@M8_CGROM)  { push @CGMemory, $byte; }; 
+    foreach my $byte (@B_CGROM)   { push @CGMemory, $byte; }; 
+    foreach my $byte (@M20_CGROM) { push @CGMemory, $byte; }; 
 
     # Positions for easy reference.
     $k_romStartPosition        = 0;
@@ -2557,6 +2683,12 @@ elsif($command eq "CGROM")
     $a_romEndPosition          = $a_romStartPosition + $A_CGROM_SIZE -1;
     $m7_romStartPosition       = $a_romEndPosition + 1;
     $m7_romEndPosition         = $m7_romStartPosition + $M7_CGROM_SIZE  -1;
+    $m8_romStartPosition       = $m7_romEndPosition + 1;
+    $m8_romEndPosition         = $m8_romStartPosition + $M8_CGROM_SIZE  -1;
+    $b_romStartPosition        = $m8_romEndPosition + 1;
+    $b_romEndPosition          = $b_romStartPosition + $B_CGROM_SIZE  -1;
+    $m20_romStartPosition      = $b_romEndPosition + 1;
+    $m20_romEndPosition        = $m20_romStartPosition + $M20_CGROM_SIZE  -1;
 
     # Finally, print out details for confirmation.
     #
@@ -2566,6 +2698,9 @@ elsif($command eq "CGROM")
     logWrite("", sprintf "                1200 CGROM           =%04x:%04x", $m12_romStartPosition,  $m12_romEndPosition);
     logWrite("", sprintf "                 80A CGROM           =%04x:%04x", $a_romStartPosition,    $a_romEndPosition);
     logWrite("", sprintf "                 700 CGROM           =%04x:%04x", $m7_romStartPosition,   $m7_romEndPosition);
+    logWrite("", sprintf "                 800 CGROM           =%04x:%04x", $m8_romStartPosition,   $m8_romEndPosition);
+    logWrite("", sprintf "                 80B CGROM           =%04x:%04x", $b_romStartPosition,    $b_romEndPosition);
+    logWrite("", sprintf "                2000 CGROM           =%04x:%04x", $m20_romStartPosition,  $m20_romEndPosition);
 }
 elsif($command eq "KEYMAP")
 {
@@ -2577,7 +2712,9 @@ elsif($command eq "KEYMAP")
     if($C_KEYMAP_SIZE > $maxSize)   { $maxSize = $C_KEYMAP_SIZE; }
     if($M12_KEYMAP_SIZE > $maxSize) { $maxSize = $M12_KEYMAP_SIZE; }
     if($M7_KEYMAP_SIZE > $maxSize)  { $maxSize = $M7_KEYMAP_SIZE; }
+    if($M8_KEYMAP_SIZE > $maxSize)  { $maxSize = $M8_KEYMAP_SIZE; }
     if($B_KEYMAP_SIZE > $maxSize)   { $maxSize = $B_KEYMAP_SIZE; }
+    if($M20_KEYMAP_SIZE > $maxSize) { $maxSize = $M20_KEYMAP_SIZE; }
 
     # Fill the memory image with equisize images, zero padding as necessary.
     foreach my $byte (@K_KEYMAP)   { push @KeyMemory, $byte; }; for(my $idx=$K_KEYMAP_SIZE; $idx < $maxSize; $idx++)   { push @KeyMemory, "\x00"; };
@@ -2585,7 +2722,9 @@ elsif($command eq "KEYMAP")
     foreach my $byte (@M12_KEYMAP) { push @KeyMemory, $byte; }; for(my $idx=$M12_KEYMAP_SIZE; $idx < $maxSize; $idx++) { push @KeyMemory, "\x00"; };
     foreach my $byte (@A_KEYMAP)   { push @KeyMemory, $byte; }; for(my $idx=$A_KEYMAP_SIZE; $idx < $maxSize; $idx++)   { push @KeyMemory, "\x00"; };
     foreach my $byte (@M7_KEYMAP)  { push @KeyMemory, $byte; }; for(my $idx=$M7_KEYMAP_SIZE; $idx < $maxSize; $idx++)  { push @KeyMemory, "\x00"; };
+    foreach my $byte (@M8_KEYMAP)  { push @KeyMemory, $byte; }; for(my $idx=$M8_KEYMAP_SIZE; $idx < $maxSize; $idx++)  { push @KeyMemory, "\x00"; };
     foreach my $byte (@B_KEYMAP)   { push @KeyMemory, $byte; }; for(my $idx=$B_KEYMAP_SIZE; $idx < $maxSize; $idx++)   { push @KeyMemory, "\x00"; };
+    foreach my $byte (@M20_KEYMAP) { push @KeyMemory, $byte; }; for(my $idx=$M20_KEYMAP_SIZE; $idx < $maxSize; $idx++) { push @KeyMemory, "\x00"; };
 
     # Positions for easy reference.
     $k_romStartPosition        = 0;
@@ -2603,9 +2742,15 @@ elsif($command eq "KEYMAP")
     $m7_romStartPosition       = $a_romEndPosition + 1;
     $m7_romEndPosition         = $m7_romStartPosition + $M7_KEYMAP_SIZE + ($maxSize - $M7_KEYMAP_SIZE) -1;
     $m7_romPadding             = $maxSize - $M7_KEYMAP_SIZE;
+    $m8_romStartPosition       = $m7_romEndPosition + 1;
+    $m8_romEndPosition         = $m8_romStartPosition + $M8_KEYMAP_SIZE + ($maxSize - $M8_KEYMAP_SIZE) -1;
+    $m8_romPadding             = $maxSize - $M8_KEYMAP_SIZE;
     $b_romStartPosition        = $m7_romEndPosition + 1;
     $b_romEndPosition          = $b_romStartPosition + $B_KEYMAP_SIZE + ($maxSize - $B_KEYMAP_SIZE) -1;
     $b_romPadding              = $maxSize - $B_KEYMAP_SIZE;
+    $m20_romStartPosition      = $b_romEndPosition + 1;
+    $m20_romEndPosition        = $m20_romStartPosition + $M20_KEYMAP_SIZE + ($maxSize - $M20_KEYMAP_SIZE) -1;
+    $m20_romPadding            = $maxSize - $M20_KEYMAP_SIZE;
 
     # Finally, print out details for confirmation.
     #
@@ -2615,7 +2760,9 @@ elsif($command eq "KEYMAP")
     logWrite("", sprintf "               1200 KEYMAP           =%04x:%04x %04x bytes padding", $m12_romStartPosition, $m12_romEndPosition, $m12_romPadding);
     logWrite("", sprintf "                80A KEYMAP           =%04x:%04x %04x bytes padding", $a_romStartPosition,   $a_romEndPosition,   $a_romPadding);
     logWrite("", sprintf "                700 KEYMAP           =%04x:%04x %04x bytes padding", $m7_romStartPosition,  $m7_romEndPosition,  $m7_romPadding);
+    logWrite("", sprintf "                800 KEYMAP           =%04x:%04x %04x bytes padding", $m8_romStartPosition,  $m8_romEndPosition,  $m8_romPadding);
     logWrite("", sprintf "                80B KEYMAP           =%04x:%04x %04x bytes padding", $b_romStartPosition,   $b_romEndPosition,   $b_romPadding);
+    logWrite("", sprintf "               2000 KEYMAP           =%04x:%04x %04x bytes padding", $m20_romStartPosition, $m20_romEndPosition, $m20_romPadding);
 }
 else
 {

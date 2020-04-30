@@ -81,8 +81,8 @@ module hps_io #(parameter STRLEN=0, PS2DIV=2000, WIDE=0, VDNUM=1, PS2WE=0)
     output reg        ioctl_wr,
     output reg        ioctl_rd,
     output reg [24:0] ioctl_addr,         // in WIDE mode address will be incremented by 2
-    output reg [DW:0] ioctl_dout,
-    input      [DW:0] ioctl_din,
+    output reg [15:0] ioctl_dout,
+    input      [15:0] ioctl_din,
     input             ioctl_wait,
 
     // RTC MSM6242B layout
@@ -306,7 +306,7 @@ always@(posedge clk_sys) begin
     //
     ioctl_rd <= rd;
     if(ioctl_rd == 1) begin
-        io_dout <= ioctl_din[DW:0];   // This read is for previous address setup.
+        io_dout <= ioctl_din[15:0];   // This read is for previous address setup.
     end
     rd <= 0;
 
@@ -334,6 +334,10 @@ always@(posedge clk_sys) begin
         io_dout <= 0;
         ps2skip <= 0;
         addr <= 0;
+		ioctl_upload   <= 0;
+		ioctl_download <= 0;
+		ioctl_rd       <= 0;
+		ioctl_wr       <= 0;
     end
     else
     begin
@@ -514,7 +518,7 @@ always@(posedge clk_sys) begin
                     UIO_FILE_TX_DAT:  // File data download, byte sent to output bus and wr is pulsed (for 1 clock after address/data setup).
                         begin
                             ioctl_addr <= addr;
-                            ioctl_dout <= io_din[DW:0];
+                            ioctl_dout <= io_din[15:0];
                             wr         <= 1;
                             addr       <= addr + (WIDE ? 2'd2 : 2'd1);
                         end
@@ -535,7 +539,7 @@ always@(posedge clk_sys) begin
                             else
                             begin
                                 ioctl_addr <= addr;
-                                ioctl_dout <= io_din[DW:0];
+                                ioctl_dout <= io_din[15:0];
                                 wr         <= 1;
                                 addr       <= addr + (WIDE ? 2'd2 : 2'd1);
                             end
@@ -569,17 +573,17 @@ always@(posedge clk_sys) begin
                                 // receive operation. If it is set to non-zero
                                 // the this is the end of upload marker.
                                 //
-                                if(io_din[7:0]) begin
-                                    ioctl_upload <= 0;
-                                    ioctl_rd     <= 0;
-                                end
-                                else
-                                begin
+                                //if(io_din[7:0]) begin
+                                //    ioctl_upload <= 0;
+                                //    ioctl_rd     <= 0;
+                                //end
+                                //else
+                                //begin
                                     ioctl_addr   <= addr;
                                     ioctl_rd     <= 1;
                                     rd           <= 1;
                                     addr         <= addr + (WIDE ? 2'd2 : 2'd1);
-                                end
+                                //end
                             end
                         end
                     UIO_CONFIG_RX:
@@ -589,15 +593,15 @@ always@(posedge clk_sys) begin
                                 ioctl_addr   <= ({21'b100000000000000000000, io_din[3:0]});
                                 ioctl_rd     <= 1;
                                 rd           <= 1;
-                                ioctl_upload <= 1; 
+                                //ioctl_upload <= 1; 
                             end
-                            else
-                            begin
-                                if(io_din[7:0]) begin
-                                    ioctl_upload <= 0;
-                                    ioctl_rd     <= 0;
-                                end
-                            end
+                            //else
+                            //begin
+                            //    if(io_din[7:0]) begin
+                            //        ioctl_upload <= 0;
+                            //        ioctl_rd     <= 0;
+                            //    end
+                            //end
                             io_dout <= ioctl_din[DW:0];   // This read is for previous address setup.
                         end
                     UIO_CONFIG_TX:

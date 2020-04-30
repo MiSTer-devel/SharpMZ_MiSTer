@@ -30,7 +30,7 @@ set_global_assignment -name DEVICE 5CSEBA6U23I7
 set_global_assignment -name TOP_LEVEL_ENTITY sys_top
 #set_global_assignment -name TOP_LEVEL_ENTITY emu
 set_global_assignment -name ORIGINAL_QUARTUS_VERSION 16.1.2
-set_global_assignment -name LAST_QUARTUS_VERSION "17.0.2 Lite Edition"
+set_global_assignment -name LAST_QUARTUS_VERSION "17.1.1 Standard Edition"
 set_global_assignment -name PROJECT_CREATION_TIME_DATE "01:53:30  APRIL 20, 2017"
 set_global_assignment -name DEVICE_FILTER_PACKAGE UFBGA
 set_global_assignment -name DEVICE_FILTER_PIN_COUNT 672
@@ -52,8 +52,10 @@ set_global_assignment -name TIMEQUEST_MULTICORNER_ANALYSIS OFF
 set_global_assignment -name OPTIMIZE_POWER_DURING_FITTING OFF
 set_global_assignment -name FINAL_PLACEMENT_OPTIMIZATION ALWAYS
 set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
-set_global_assignment -name OPTIMIZATION_MODE "HIGH PERFORMANCE EFFORT"
+set_global_assignment -name OPTIMIZATION_MODE "HIGH POWER EFFORT"
 set_global_assignment -name SEED 1
+#set_global_assignment -name SDC_FILE sharpmz.sdc
+set_global_assignment -name SDC_FILE "sharpmz-lite.sdc"
 
 #============================================================
 # ADC
@@ -100,20 +102,20 @@ set_global_assignment -name SEED 1
 #============================================================
 # SDIO
 #============================================================
-#set_location_assignment PIN_AF25 -to SDIO_DAT[0]
-#set_location_assignment PIN_AF23 -to SDIO_DAT[1]
-#set_location_assignment PIN_AD26 -to SDIO_DAT[2]
-#set_location_assignment PIN_AF28 -to SDIO_DAT[3]
-#set_location_assignment PIN_AF27 -to SDIO_CMD
-#set_location_assignment PIN_AH26 -to SDIO_CLK
-#set_location_assignment PIN_AH7 -to SDIO_CD
+set_location_assignment PIN_AF25 -to SDIO_DAT[0]
+set_location_assignment PIN_AF23 -to SDIO_DAT[1]
+set_location_assignment PIN_AD26 -to SDIO_DAT[2]
+set_location_assignment PIN_AF28 -to SDIO_DAT[3]
+set_location_assignment PIN_AF27 -to SDIO_CMD
+set_location_assignment PIN_AH26 -to SDIO_CLK
+set_location_assignment PIN_AH7 -to SDIO_CD
 #
-#set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to SDIO_*
+set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to SDIO_*
 #
-#set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SDIO_*
-#set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SDIO_DAT[*]
-#set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SDIO_CMD
-#set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SDIO_CD
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SDIO_*
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SDIO_DAT[*]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SDIO_CMD
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SDIO_CD
 
 #============================================================
 # VGA
@@ -358,17 +360,9 @@ set_global_assignment -name CDF_FILE jtag.cdf
 set_global_assignment -name QIP_FILE sys/sys.qip
 set_global_assignment -name VHDL_FILE jtag_uart_0.vhd
 set_global_assignment -name SYSTEMVERILOG_FILE emu.sv
+set_global_assignment -name VHDL_FILE common/config_pkg.vhd
+set_global_assignment -name VHDL_FILE bridge.vhd
 set_global_assignment -name VHDL_FILE sharpmz.vhd
-
-#============================================================
-# Original MZ80C T80 CPU
-#============================================================
-#set_global_assignment -name VHDL_FILE          common/T80.orig/T80_Reg.vhd
-#set_global_assignment -name VHDL_FILE          common/T80.orig/T80_Pack.vhd
-#set_global_assignment -name VHDL_FILE          common/T80.orig/T80_MCode.vhd
-#set_global_assignment -name VHDL_FILE          common/T80.orig/T80_ALU.vhd
-#set_global_assignment -name VHDL_FILE          common/T80.orig/T80.vhd
-#set_global_assignment -name VHDL_FILE          common/T80.orig/T80s.vhd
 
 #============================================================
 # Latest T80 CPU
@@ -386,33 +380,106 @@ set_global_assignment -name VHDL_FILE common/T80/T80sed.vhd
 #============================================================
 # i8253 Programmable Interval Timer
 #============================================================
-set_global_assignment -name VHDL_FILE common/i8253/i8253.vhd
-set_global_assignment -name VHDL_FILE common/i8253/counter0.vhd
-set_global_assignment -name VHDL_FILE common/i8253/counter1.vhd
-set_global_assignment -name VHDL_FILE common/i8253/counter2.vhd
+set_global_assignment -name VHDL_FILE common/i8254/i8254_counter.vhd
+set_global_assignment -name VHDL_FILE common/i8254/i8254.vhd
 
 #============================================================
 # i8255 Programmable Peripheral Interface 
 #============================================================
 set_global_assignment -name VHDL_FILE common/i8255/i8255.vhd
+#set_global_assignment -name VHDL_FILE mz80b/i8255/i8255.vhd
 
 #============================================================
 # MZ80C specific modules.
 #============================================================
 set_global_assignment -name VHDL_FILE mz80c/mz80c.vhd
-set_global_assignment -name VHDL_FILE mz80c/cmt.vhd
-set_global_assignment -name VHDL_FILE mz80c/mz80c_video.vhd
 
 #============================================================
 # MZ80B specific modules.
 #============================================================
+#set_global_assignment -name VHDL_FILE mz80b/mz80b_dummy.vhd
 set_global_assignment -name VHDL_FILE mz80b/mz80b.vhd
+
+#============================================================
+# NEO430
+#============================================================
+#set_global_assignment -name VHDL_FILE neo430/neo430.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_addr_gen.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_alu.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_application_image.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_boot_rom.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_bootloader_image.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_cfu.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_control.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_cpu.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_crc.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_dmem.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_gpio.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_imem.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_muldiv.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_package.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_pwm.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_reg_file.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_sysconfig.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_timer.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_top.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_uart.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_spi.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_twi.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_wb_interface.vhd
+#set_global_assignment -name VHDL_FILE neo430/neo430_wdt.vhd
+#============================================================
+# STORM
+#============================================================
+#set_global_assignment -name VHDL_FILE    storm/STORM_SoC.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/ALU.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/BARREL_SHIFTER.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/BUS_UNIT.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/CACHE.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/CORE.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/CORE_PKG.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/FLOW_CTRL.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/LOAD_STORE_UNIT.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/MC_SYS.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/MS_UNIT.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/MULTIPLY_UNIT.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/OPCODE_DECODER.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/OPERAND_UNIT.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/REG_FILE.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/STORM_TOP.vhd
+#set_global_assignment -name VHDL_FILE    storm/CPU/WB_UNIT.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/boot_rom/rtl/BOOT_ROM_FILE.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/seven_segment_controller/rtl/SEVEN_SEG_CTRL.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/ps2core/rtl/vhdl/ps2_wb.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/ps2core/rtl/vhdl/ps2.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/reset_protector/rtl/RST_PROTECT.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/timer/rtl/TIMER.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/io_controller/rtl/GP_IO_CTRL.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/vector_interrupt_controller/rtl/VIC.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/miniuart/rtl/vhdl/MINI_UART.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/miniuart/rtl/vhdl/Txunit.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/miniuart/rtl/vhdl/Rxunit.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/miniuart/rtl/vhdl/utils.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/i2c_controller/rtl/vhdl/i2c_master_top.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/i2c_controller/rtl/vhdl/i2c_master_byte_ctrl.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/i2c_controller/rtl/vhdl/i2c_master_bit_ctrl.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/pwm_controller/rtl/PWM_CTRL.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/sram_memory/rtl/MEMORY.vhd
+#set_global_assignment -name VHDL_FILE    storm/components/ioctl/rtl/ioctl.vhd
+#set_global_assignment -name VERILOG_FILE storm/components/spi_controller/rtl/verilog/spi_top.v
+#set_global_assignment -name VERILOG_FILE storm/components/spi_controller/rtl/verilog/spi_defines.v
+#set_global_assignment -name VERILOG_FILE storm/components/spi_controller/rtl/verilog/spi_clgen.v
+#set_global_assignment -name VERILOG_FILE storm/components/spi_controller/rtl/verilog/spi_shift.v
+#set_global_assignment -name VERILOG_FILE storm/components/spi_controller/rtl/verilog/timescale.v
 
 #============================================================
 # PLL
 #============================================================
 set_global_assignment -name QIP_FILE common/pll.qip
 set_global_assignment -name VHDL_FILE common/clkgen.vhd
+#set_global_assignment -name QIP_FILE common/pll_1.qip
+#set_global_assignment -name QIP_FILE common/pll_2.qip
+#set_global_assignment -name QIP_FILE common/pll_4.qip
 
 #============================================================
 # Common modules
@@ -422,9 +489,45 @@ set_global_assignment -name VHDL_FILE common/clk_div.vhd
 set_global_assignment -name VHDL_FILE common/mctrl.vhd
 set_global_assignment -name VHDL_FILE common/dpram.vhd
 set_global_assignment -name VHDL_FILE common/keymatrix.vhd
+set_global_assignment -name VHDL_FILE common/video.vhd
+set_global_assignment -name VHDL_FILE common/cmt.vhd
+set_global_assignment -name VHDL_FILE common/z8420/z8420.vhd
+set_global_assignment -name VHDL_FILE common/z8420/Interrupt.vhd
+
+#============================================================
+# Functions
+#============================================================
+set_global_assignment -name VHDL_FILE common/functions.vhd
 
 set_global_assignment -name FLOW_ENABLE_RTL_VIEWER ON
 set_global_assignment -name ALLOW_REGISTER_RETIMING ON
+
+
+set_location_assignment PIN_AA13 -to UART_TX
+set_location_assignment PIN_AA11 -to UART_RX
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_TX
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_RX
+set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to UART_TX
+#
+#set_location_assignment PIN_AF25 -to SPI_MISO
+#set_location_assignment PIN_AF28 -to SPI_CS[0]
+#set_location_assignment PIN_AF27 -to SPI_MOSI
+#set_location_assignment PIN_AH26 -to SPI_SCLK
+
+#set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to SPI_MISO
+#set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to SPI_CS[0]
+#set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to SPI_MOSI
+#set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to SPI_SCLK
+
+#set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SPI_MISO
+#set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SPI_CS[0]
+#set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SPI_MOSI
+#set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SPI_SCLK
+#set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SPI_MISO
+
+
+
+
 
 
 

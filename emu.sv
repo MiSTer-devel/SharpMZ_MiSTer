@@ -30,7 +30,7 @@
 
 module emu
 (
-    //Master input clock
+    //Master input clocks
     input         CLK_50M,
 
     //Async reset from top-level module.
@@ -77,11 +77,11 @@ module emu
 //  input         TAPE_IN,
 
     // SD-SPI
-//  output        SD_SCK,
-//  output        SD_MOSI,
-//  input         SD_MISO,
-//  output        SD_CS,
-//  input         SD_CD,
+    output        SD_SCK,
+    output        SD_MOSI,
+    input         SD_MISO,
+    output        SD_CS,
+    input         SD_CD,
 
     //High latency DDR3 RAM interface
     //Use for non-critical time purposes
@@ -94,7 +94,7 @@ module emu
     output        DDRAM_RD,
     output [63:0] DDRAM_DIN,
     output  [7:0] DDRAM_BE,
-    output        DDRAM_WE
+    output        DDRAM_WE,
 
     //SDRAM interface with lower latency
 //  ,output        SDRAM_CLK,
@@ -108,6 +108,8 @@ module emu
 //  output        SDRAM_nCAS,
 //  output        SDRAM_nRAS,
 //  output        SDRAM_nWE
+    input         UART_RX,
+    output        UART_TX
 );
 
 //assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
@@ -130,7 +132,7 @@ localparam CONF_STR =
 {
         "SHARP MZ SERIES;;",
         "J,Fire;",
-        "V,v1.01.",`BUILD_DATE
+        "V,v1.02.",`BUILD_DATE
 };
 
 /////////////////  CLOCKS  ////////////////////////
@@ -151,8 +153,8 @@ wire  [7:0] ioctl_index;
 wire        ioctl_wr;
 wire        ioctl_rd;
 wire [24:0] ioctl_addr;
-wire  [7:0] ioctl_dout;
-wire  [7:0] ioctl_din;
+wire [15:0] ioctl_dout;
+wire [15:0] ioctl_din;
 wire        forced_scandoubler;
 
 hps_io #(.STRLEN(($size(CONF_STR)>>3))) hps_io
@@ -239,7 +241,7 @@ wire vblank_emu;
 wire hsync_emu;
 wire vsync_emu;
 
-sharpmz sharp_mz
+bridge sharp_mz
 (
         // Clocks Input to Emulator.
         .clkmaster(CLK_50M),
@@ -273,6 +275,14 @@ sharpmz sharp_mz
         .audio_l_o(audio_l_emu),
         .audio_r_o(audio_r_emu),
 
+        .uart_rx(UART_RX),
+        .uart_tx(UART_TX),
+        .sd_sck(SD_SCK),
+        .sd_mosi(SD_MOSI),
+        .sd_miso(SD_MISO),
+        .sd_cs(SD_CS),
+        .sd_cd(SD_CD),
+
         // HPS Interface
         .ioctl_download(ioctl_download),                                        // HPS Downloading to FPGA.
         .ioctl_upload(ioctl_upload),                                            // HPS Uploading from FPGA.
@@ -291,40 +301,47 @@ sharpmz sharp_mz
 assign CLK_VIDEO = clk_video_in;
 assign CE_PIXEL  = clk_video_in;
 
+assign VGA_R = R_emu;
+assign VGA_G = G_emu;
+assign VGA_B = B_emu;
+assign VGA_VS = vsync_emu;
+assign VGA_HS = hsync_emu;
+assign VGA_DE = ~(vblank_emu | hblank_emu);
+
 //video_mixer #(.HALF_DEPTH(0)) video_mixer
-video_mixer #(.LINE_LENGTH(320), .HALF_DEPTH(1)) video_mixer
-(
-    .clk_sys(clk_sys),
-    .ce_pix(clk_video_in),                                                      // Video pixel clock from core.
-    //.ce_pix_out(CE_PIXEL),
-
-    .scanlines({scale == 4, scale == 3, scale == 2}),
-    .scandoubler(scale || forced_scandoubler),
-    .hq2x(scale==1),
-
-    .mono(0),
-
-    // Input signals into the mixer, originating from the emulator.
-    .R(R_emu),
-    .G(G_emu),
-    .B(B_emu),
-
-    // Positive pulses.
-    .HSync(hsync_emu),
-    .VSync(vsync_emu),
-    .HBlank(hblank_emu),
-    .VBlank(vblank_emu),
-
-    .VGA_R(VGA_R),
-    .VGA_G(VGA_G),
-    .VGA_B(VGA_B),
-    .VGA_VS(VGA_VS),
-    .VGA_HS(VGA_HS),
-    .VGA_DE(VGA_DE)
-
-    // Outputs of the mixer are bound to the VGA_x signals defined in the sys_top module and passed into this module as parameters.
-    // These signals then feed the vga_osd -> vga_out modules in systop.v
-);
+//video_mixer #(.LINE_LENGTH(320), .HALF_DEPTH(1)) video_mixer
+//(
+//    .clk_sys(clk_sys),
+//    .ce_pix(clk_video_in),                                                      // Video pixel clock from core.
+//    //.ce_pix_out(CE_PIXEL),
+//
+//    .scanlines({scale == 4, scale == 3, scale == 2}),
+//    .scandoubler(scale || forced_scandoubler),
+//    .hq2x(scale==1),
+//
+//    .mono(0),
+//
+//    // Input signals into the mixer, originating from the emulator.
+//    .R(R_emu),
+//    .G(G_emu),
+//    .B(B_emu),
+//
+//    // Positive pulses.
+//    .HSync(hsync_emu),
+//    .VSync(vsync_emu),
+//    .HBlank(hblank_emu),
+//    .VBlank(vblank_emu),
+//
+//    .VGA_R(VGA_R),
+//    .VGA_G(VGA_G),
+//    .VGA_B(VGA_B),
+//    .VGA_VS(VGA_VS),
+//    .VGA_HS(VGA_HS),
+//    .VGA_DE(VGA_DE)
+//
+//    // Outputs of the mixer are bound to the VGA_x signals defined in the sys_top module and passed into this module as parameters.
+//    // These signals then feed the vga_osd -> vga_out modules in systop.v
+//);
 
 // Uncomment below and comment out video_mixer to pass original signal to sys_top.v. 
 // To output original signal, edit sys_top.v and comment out vga_osd and vga_out, uncomment the assign statements.

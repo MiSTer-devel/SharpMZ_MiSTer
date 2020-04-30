@@ -19,21 +19,23 @@
 --                  The tree is as follows;-
 --
 --                                      (emu) sharpmz.vhd (mz80c)	->	mz80c.vhd
---                                      |                                         -> mz80c_video.vhd
---                                      |                                         -> pcg.vhd
---                                      |                                         -> cmt.vhd (this may move to common and be shared with mz80b)
+--                                      |
+--                                      |
+--                                      |                                         -> cmt.vhd                   (common)
 --                                      |                                         -> keymatrix.vhd             (common)
 --                                      |                                         -> pll.v                     (common)
 --                                      |                                         -> clkgen.vhd                (common)
 --                                      |                                         -> T80                       (common)
 --                                      |                                         -> i8255                     (common)
---                                      |                                         -> i8253                     (common)
+--                  sys_top.sv (emu) ->	(emu) sharpmz.vhd (hps_io) -> hps_io.sv
+--                                      |                                         -> i8254                     (common)
 --                                      |                                         -> dpram.vhd                 (common)
 --                                      |                                         -> dprom.vhd                 (common)
 --                                      |                                         -> mctrl.vhd                 (common)
---                  sys_top.sv (emu) ->	(emu) sharpmz.vhd (hps_io) -> hps_io.sv
+--                                      |                                         -> video.vhd                 (common)
 --                                      |
---                                      (emu) sharpmz.vhd (mz80b)	->	mz80b.vhd (under development)
+--                                      |
+--                                      (emu) sharpmz.vhd (mz80b)	->	mz80b.vhd   
 --
 --
 --
@@ -61,6 +63,7 @@ library ieee;
 library pkgs;
 use ieee.std_logic_1164.all;
 use ieee.std_logic_unsigned.all;
+use pkgs.config_pkg.all;
 use pkgs.clkgen_pkg.all;
 use pkgs.mctrl_pkg.all;
 
@@ -70,12 +73,11 @@ entity mz80c is
           CLKBUS             : in  std_logic_vector(CLKBUS_WIDTH);    -- Clock signals created by clkgen module.
 
           -- Resets.
+          COLD_RESET         : in  std_logic;
           SYSTEM_RESET       : in  std_logic;
           
           -- Z80 CPU
           T80_RST_n          : in  std_logic;
-          T80_CLK            : in  std_logic;
-          T80_CLKEN          : out std_logic;
           T80_WAIT_n         : out std_logic;
           T80_INT_n          : out std_logic;
           T80_NMI_n          : out std_logic;
@@ -93,30 +95,33 @@ entity mz80c is
           T80_DO             : in  std_logic_vector(7 downto 0);
 
           -- Chip selects to common resources.
-          CS_ROM_n           : out std_logic;
-          CS_RAM_n           : out std_logic;
+          CS_ROM_n           : out std_logic;                            -- ROM Select
+          CS_RAM_n           : out std_logic;                            -- RAM Select
+          CS_VRAM_n          : out std_logic;                            -- VRAM Select
+          CS_MEM_G_n         : out std_logic;                            -- Memory Peripherals Select
+          CS_GRAM_n          : out std_logic;                            -- GRAM Select
+          CS_IO_GFB_n        : out std_logic;                            -- Graphics Framebuffer IO Select range
 
           -- Audio.
           AUDIO_L            : out std_logic;
           AUDIO_R            : out std_logic;
 
-          -- Video signals.
-          R                  : out std_logic;
-          G                  : out std_logic;
-          B                  : out std_logic;
-          HSYNC_n            : out std_logic;
-          VSYNC_n            : out std_logic;
-          HBLANK             : out std_logic;
-          VBLANK             : out std_logic;
-
           -- Different operations modes.
           CONFIG             : in  std_logic_vector(CONFIG_WIDTH);
 
           -- I/O                                                         -- I/O down to the core.
-          PS2_KEY            : in  std_logic_vector(10 downto 0);
+          KEYB_SCAN          : out std_logic_vector(3 downto 0);         -- Keyboard scan lines out.
+          KEYB_DATA          : in  std_logic_vector(7 downto 0);         -- Keyboard scan data in.
+          KEYB_STALL         : out std_logic;                            -- Keyboard Stall out.
 
           -- Cassette magnetic tape signals.
-          CMTBUS             : out std_logic_vector(CMTBUS_WIDTH);
+          CMT_BUS_OUT        : in  std_logic_vector(CMT_BUS_OUT_WIDTH);
+          CMT_BUS_IN         : out std_logic_vector(CMT_BUS_IN_WIDTH);
+
+          -- Video signals
+          VGATE_n            : out std_logic;                            -- Video Gate enable.
+          HBLANK             : in  std_logic;                            -- Horizontal Blanking Signal
+          VBLANK             : in  std_logic;                            -- Vertical Blanking Signal
 
           -- HPS Interface
           IOCTL_DOWNLOAD     : in  std_logic;                            -- HPS Downloading to FPGA.
@@ -125,8 +130,8 @@ entity mz80c is
           IOCTL_WR           : in  std_logic;                            -- HPS Write Enable to FPGA.
           IOCTL_RD           : in  std_logic;                            -- HPS Read Enable from FPGA.
           IOCTL_ADDR         : in  std_logic_vector(24 downto 0);        -- HPS Address in FPGA to write into.
-          IOCTL_DOUT         : in  std_logic_vector(15 downto 0);        -- HPS Data to be written into FPGA.
-          IOCTL_DIN          : out std_logic_vector(15 downto 0);        -- HPS Data to be read into HPS.
+          IOCTL_DOUT         : in  std_logic_vector(31 downto 0);        -- HPS Data to be written into FPGA.
+          IOCTL_DIN          : out std_logic_vector(31 downto 0);        -- HPS Data to be read into HPS.
 
           -- Debug Status Leds
           DEBUG_STATUS_LEDS  : out std_logic_vector(111 downto 0)        -- 112 leds to display status.
@@ -138,14 +143,7 @@ architecture rtl of mz80c is
 --
 -- Buffered output signals.
 --
-signal HBLANKi               :     std_logic;
-signal VBLANKi               :     std_logic;
 signal BLNK_n                :     std_logic;
-signal Ri                    :     std_logic;
-signal Gi                    :     std_logic;
-signal Bi                    :     std_logic;
-signal HSYNC_ni              :     std_logic;
-signal VSYNC_ni              :     std_logic;
 
 -- Parent signals.
 --
@@ -158,27 +156,26 @@ signal MZ_INHIBIT_RESET      :     std_logic;
 signal MZ_GRAM_ENABLE        :     std_logic;
 signal i8255_PA_I            :     std_logic_vector(7 downto 0);
 signal i8255_PA_O            :     std_logic_vector(7 downto 0);
+signal i8255_PA_OE_n         :     std_logic_vector(7 downto 0);
 signal i8255_PB_I            :     std_logic_vector(7 downto 0);
 signal i8255_PB_O            :     std_logic_vector(7 downto 0);
 signal i8255_PC_I            :     std_logic_vector(7 downto 0);
 signal i8255_PC_O            :     std_logic_vector(7 downto 0);
+signal i8255_PC_OE_n         :     std_logic_vector(7 downto 0);
 --
 -- System Clocks
 --
-signal MZ_RTC_CASCADE_CLK    :     std_logic;                            -- i8253 subdivision of the 31.250KHz clock creating 1s/1Hz timebase.
+signal MZ_RTC_CASCADE_CLK    :     std_logic;                            -- i8254 subdivision of the 31.250KHz clock creating 1s/1Hz timebase.
 --
 -- Decodes, misc
 --
-signal CMTBUSi               :     std_logic_vector(CMTBUS_WIDTH);
-signal CMT_READBITi          :     std_logic;
-signal CMT_MOTORi            :     std_logic;
-signal CS_D_n                :     std_logic;
-signal CS_E_n                :     std_logic;
+signal CS_VRAM_ni            :     std_logic;
+signal CS_E_ni               :     std_logic;
 signal CS_E0_n               :     std_logic;
 signal CS_E1_n               :     std_logic;
 signal CS_E2_n               :     std_logic;
 signal CS_ESWP_n             :     std_logic;
-signal CS_G_n                :     std_logic;
+signal CS_GRAM_ni            :     std_logic;
 signal DO367                 :     std_logic_vector(7 downto 0);
 signal CS_BANKSWITCH_n       :     std_logic;
 signal CS_MZ700BS_n          :     std_logic;
@@ -189,16 +186,12 @@ signal CS_IO_E3_n            :     std_logic;
 signal CS_IO_E4_n            :     std_logic;
 signal CS_IO_E5_n            :     std_logic;
 signal CS_IO_E6_n            :     std_logic;
-signal CS_IO_E8_n            :     std_logic;
-signal CS_IO_E9_n            :     std_logic;
-signal CS_IO_GRAM_n          :     std_logic;
+signal CS_IO_GRAMENABLE_n    :     std_logic;
+signal CS_IO_GRAMDISABLE_n   :     std_logic;
+signal CS_IO_GFB_ni          :     std_logic;
 signal CS_ROM_ni             :     std_logic;
 signal CS_RAM_ni             :     std_logic;
-signal VGATE_n               :     std_logic;                               -- Video Outpu Enable
-signal VRAMDO                :     std_logic_vector(7 downto 0);
-signal IOCTL_DIN_VIDEO       :     std_logic_vector(15 downto 0);
-signal IOCTL_DIN_KEY         :     std_logic_vector(15 downto 0);
-signal IOCTL_DIN_CMT         :     std_logic_vector(15 downto 0);
+signal VGATE_ni              :     std_logic;                               -- Video Output Enable
 signal T80_IWR_n             :     std_logic;
 signal T80_INT_ni            :     std_logic;
 --
@@ -239,34 +232,35 @@ signal PULSECPU              :     std_logic;
 --
 component i8255
     port (
-        RESET                : in    std_logic;
-        CLK                  : in    std_logic;
-        ENA                  : in    std_logic; -- (CPU) clk enable
-        ADDR                 : in    std_logic_vector(1 downto 0); -- A1-A0
-        DI                   : in    std_logic_vector(7 downto 0); -- D7-D0
-        DO                   : out   std_logic_vector(7 downto 0);
-        CS_n                 : in    std_logic;
-        RD_n                 : in    std_logic;
-        WR_n                 : in    std_logic;
+        RESET                : in  std_logic;
+        CLK                  : in  std_logic;
+        ENA                  : in  std_logic; -- (CPU) clk enable
+        ADDR                 : in  std_logic_vector(1 downto 0); -- A1-A0
+        DI                   : in  std_logic_vector(7 downto 0); -- D7-D0
+        DO                   : out std_logic_vector(7 downto 0);
+        CS_n                 : in  std_logic;
+        RD_n                 : in  std_logic;
+        WR_n                 : in  std_logic;
     
-        PA_I                 : in    std_logic_vector(7 downto 0);
-        PA_O                 : out   std_logic_vector(7 downto 0);
-        PA_O_OE_n            : out   std_logic_vector(7 downto 0);
+        PA_I                 : in  std_logic_vector(7 downto 0);
+        PA_O                 : out std_logic_vector(7 downto 0);
+        PA_O_OE_n            : out std_logic_vector(7 downto 0);
     
-        PB_I                 : in    std_logic_vector(7 downto 0);
-        PB_O                 : out   std_logic_vector(7 downto 0);
-        PB_O_OE_n            : out   std_logic_vector(7 downto 0);
+        PB_I                 : in  std_logic_vector(7 downto 0);
+        PB_O                 : out std_logic_vector(7 downto 0);
+        PB_O_OE_n            : out std_logic_vector(7 downto 0);
     
-        PC_I                 : in    std_logic_vector(7 downto 0);
-        PC_O                 : out   std_logic_vector(7 downto 0);
-        PC_O_OE_n            : out   std_logic_vector(7 downto 0)
+        PC_I                 : in  std_logic_vector(7 downto 0);
+        PC_O                 : out std_logic_vector(7 downto 0);
+        PC_O_OE_n            : out std_logic_vector(7 downto 0)
     );
 end component;
 
-component i8253
-   Port (
+component i8254
+ Port (
         RST                  : in  std_logic;
         CLK                  : in  std_logic;
+        ENA                  : in  std_logic;
         A                    : in  std_logic_vector(1 downto 0);
         DI                   : in  std_logic_vector(7 downto 0);
         DO                   : out std_logic_vector(7 downto 0);
@@ -282,116 +276,7 @@ component i8253
         CLK2                 : in  std_logic;
         GATE2                : in  std_logic;
         OUT2                 : out std_logic
-    );
-end component;
-
-component mz80c_video is
-    Port (
-        RST_n                : in  std_logic;                            -- Reset
-
-        -- Different operations modes.
-        CONFIG               : in  std_logic_vector(CONFIG_WIDTH);
-
-        -- Clocks
-        CLKBUS               : in  std_logic_vector(CLKBUS_WIDTH);       -- Clock signals created by clkgen module.
-
-        -- CPU Signals
-        T80_A                : in  std_logic_vector(13 downto 0);        -- CPU Address Bus
-        T80_RD_n             : in  std_logic;                            -- CPU Read Signal
-        T80_WR_n             : in  std_logic;                            -- CPU Write Signal
-        T80_MREQ_n           : in  std_logic;                            -- CPU Memory Request
-        T80_BUSACK_n         : in  std_logic;                            -- CPU Bus Acknowledge
-        T80_WAIT_n           : out std_logic;                            -- CPU Wait Request
-        T80_DI               : in  std_logic_vector(7 downto 0);         -- CPU Data Bus in
-        T80_DO               : out std_logic_vector(7 downto 0);         -- CPU Data Bus out
-
-        -- Selects.
-        CS_D_n               : in  std_logic;                            -- VRAM Select
-        CS_E_n               : in  std_logic;                            -- Peripherals Select
-        CS_G_n               : in  std_logic;                            -- GRAM Select
-        CS_IO_GRAM_n         : in  std_logic;                            -- GRAM IO Select range E8 - EF
-
-        -- Video Signals
-        VGATE_n              : in  std_logic;                            -- Video Output Control
-        HBLANK               : out std_logic;                            -- Horizontal Blanking
-        VBLANK               : out std_logic;                            -- Vertical Blanking
-        HSYNC_n              : out std_logic;                            -- Horizontal Sync
-        VSYNC_n              : out std_logic;                            -- Vertical Sync
-        ROUT                 : out std_logic;                            -- Red Output
-        GOUT                 : out std_logic;                            -- Green Output
-        BOUT                 : out std_logic;                            -- Green Output
-
-        -- HPS Interface
-        IOCTL_DOWNLOAD       : in  std_logic;                            -- HPS Downloading to FPGA.
-        IOCTL_UPLOAD         : in  std_logic;                            -- HPS Uploading from FPGA.
-        IOCTL_CLK            : in  std_logic;                            -- HPS I/O Clock.
-        IOCTL_WR             : in  std_logic;                            -- HPS Write Enable to FPGA.
-        IOCTL_RD             : in  std_logic;                            -- HPS Read Enable to FPGA.
-        IOCTL_ADDR           : in  std_logic_vector(24 downto 0);        -- HPS Address in FPGA to write into.
-        IOCTL_DOUT           : in  std_logic_vector(15 downto 0);        -- HPS Data to be written into FPGA.
-        IOCTL_DIN            : out std_logic_vector(15 downto 0)         -- HPS Data to be read into HPS.
-    );
-end component;
-
-component keymatrix
-    Port (
-        RST_n                : in  std_logic;
-
-        -- i8255
-        PA                   : in  std_logic_vector(3 downto 0);
-        PB                   : out std_logic_vector(7 downto 0);
-        STALL                : in  std_logic;
-
-        -- PS/2 Keyboard Data
-        PS2_KEY              : in  std_logic_vector(10 downto 0);        -- PS2 Key data.
-
-        -- Different operations modes.
-        CONFIG               : in  std_logic_vector(CONFIG_WIDTH);
-
-        -- Clock signals created by this module.
-        CLKBUS               : in  std_logic_vector(CLKBUS_WIDTH);
-
-        -- HPS Interface
-        IOCTL_DOWNLOAD       : in  std_logic;                            -- HPS Downloading to FPGA.
-        IOCTL_UPLOAD         : in  std_logic;                            -- HPS Uploading from FPGA.
-        IOCTL_CLK            : in  std_logic;                            -- HPS I/O Clock.
-        IOCTL_WR             : in  std_logic;                            -- HPS Write Enable to FPGA.
-        IOCTL_RD             : in  std_logic;                            -- HPS Read Enable to FPGA.
-        IOCTL_ADDR           : in  std_logic_vector(24 downto 0);        -- HPS Address in FPGA to write into.
-        IOCTL_DOUT           : in  std_logic_vector(15 downto 0);        -- HPS Data to be written into FPGA.
-        IOCTL_DIN            : out std_logic_vector(15 downto 0)         -- HPS Data to be read into HPS.
-    );
-end component;
-
-component cmt
-    Port (
-        -- HPS Bus
-        RST                  : in  std_logic;
-
-        -- Clock signals created by this module.
-        CLKBUS               : in  std_logic_vector(CLKBUS_WIDTH);
-
-        -- Different operations modes.
-        CONFIG               : in  std_logic_vector(CONFIG_WIDTH);
-
-        -- Cassette magnetic tape signals.
-        CMTBUS               : out std_logic_vector(CMTBUS_WIDTH);
-        CMT_READBIT          : in  std_logic;
-        CMT_MOTOR            : in  std_logic;
-
-        -- HPS Interface
-        IOCTL_DOWNLOAD       : in  std_logic;                            -- HPS Downloading to FPGA.
-        IOCTL_UPLOAD         : in  std_logic;                            -- HPS Uploading from FPGA.
-        IOCTL_CLK            : in  std_logic;                            -- HPS I/O Clock.
-        IOCTL_WR             : in  std_logic;                            -- HPS Write Enable to FPGA.
-        IOCTL_RD             : in  std_logic;                            -- HPS Read Enable from FPGA.
-        IOCTL_ADDR           : in  std_logic_vector(24 downto 0);        -- HPS Address in FPGA to write into.
-        IOCTL_DOUT           : in  std_logic_vector(15 downto 0);        -- HPS Data to be written into FPGA.
-        IOCTL_DIN            : out std_logic_vector(15 downto 0);        -- HPS Data to be read into HPS.
-
-        -- Debug Status Leds
-        DEBUG_STATUS_LEDS    : out std_logic_vector(23 downto 0)         -- 24 leds to display cmt internal status.
-    );
+  );
 end component;
 
 begin
@@ -399,11 +284,14 @@ begin
     --
     -- Instantiation
     --
-    PPI0 : i8255
+    -- 8255 PPI used for Tape control and interfacing, Keyboard input
+    -- and Video/Sound control.
+    --
+    PPI0A : i8255
         port map (
             RESET            => MZ_RESET,
-            CLK              => CLKBUS(CKCPU),
-            ENA              => '1',
+            CLK              => CLKBUS(CKMASTER),
+            ENA              => CLKBUS(CKENCPU), --'1',
             ADDR             => T80_A16(1 downto 0), 
             DI               => T80_DO,
             DO               => DOPPI,
@@ -413,7 +301,7 @@ begin
     
             PA_I             => i8255_PA_O,
             PA_O             => i8255_PA_O,
-            PA_O_OE_n        => open,
+            PA_O_OE_n        => i8255_PA_OE_n,
     
             PB_I             => i8255_PB_I, 
             PB_O             => open, 
@@ -421,13 +309,16 @@ begin
     
             PC_I             => i8255_PC_I,
             PC_O             => i8255_PC_O,
-            PC_O_OE_n        => open
+            PC_O_OE_n        => i8255_PC_OE_n
         );
 
-    PIT0 : i8253
-        port map (
+    -- 8253 used for real time clock and sound generation.
+    --
+    PIT0 : i8254
+      port map (
             RST              => MZ_RESET,
-            CLK              => CLKBUS(CKCPU),
+            CLK              => CLKBUS(CKMASTER),
+            ENA              => CLKBUS(CKENCPU),
             A                => T80_A16(1 downto 0),
             DI               => T80_DO,
             DO               => DOPIT,
@@ -443,185 +334,81 @@ begin
             CLK2             => MZ_RTC_CASCADE_CLK,
             GATE2            => '1',
             OUT2             => INTX
-        );
-
-    VIDEO0 : mz80c_video
-        port map (
-            RST_n            => T80_RST_n,                               -- Reset
-
-            -- Different operations modes.
-            CONFIG           => CONFIG,
-
-            -- Clocks
-            CLKBUS           => CLKBUS,                                  -- Clock signals created by clkgen module.
-
-            -- CPU Signals
-            T80_A            => T80_A16(13 downto 0),                    -- CPU Address Bus
-            T80_RD_n         => T80_RD_n,                                -- CPU Read Signal
-            T80_WR_n         => T80_WR_n,                                -- CPU Write Signal
-            T80_MREQ_n       => T80_MREQ_n,                              -- CPU Memory Request
-            T80_BUSACK_n     => T80_BUSAK_n,                             -- CPU Bus Acknowledge
-            T80_WAIT_n       => T80_WAIT_n,                              -- CPU Wait Request
-            T80_DI           => T80_DO,                                  -- CPU Data Bus(in)
-            T80_DO           => VRAMDO,                                  -- CPU Data Bus(out)
-
-            -- Selects.
-            CS_D_n           => CS_D_n,                                  -- VRAM Select
-            CS_E_n           => CS_E_n,                                  -- Peripherals Select
-            CS_G_n           => CS_G_n,                                  -- GRAM Select
-            CS_IO_GRAM_n     => CS_IO_GRAM_n,                            -- GRAM IO Select range E8 - EF
-
-            -- Video Signals
-            VGATE_n          => VGATE_n,                                 -- Video Output Control
-            HBLANK           => HBLANKi,                                 -- Horizontal Blanking
-            VBLANK           => VBLANKi,                                 -- Vertical Blanking
-            HSYNC_n          => HSYNC_ni,                                -- Horizontal Sync
-            VSYNC_n          => VSYNC_ni,                                -- Vertical Sync
-            ROUT             => Ri,                                      -- Red Output
-            GOUT             => Gi,                                      -- Green Output
-            BOUT             => Bi,                                      -- Blue Output
-
-            -- HPS Interface
-            IOCTL_DOWNLOAD   => IOCTL_DOWNLOAD,
-            IOCTL_UPLOAD     => IOCTL_UPLOAD,
-            IOCTL_CLK        => IOCTL_CLK,                               -- HPS I/O Clock.
-            IOCTL_WR         => IOCTL_WR,                                -- HPS Write Enable to FPGA.
-            IOCTL_RD         => IOCTL_RD,                                -- HPS Read Enable to FPGA.
-            IOCTL_ADDR       => IOCTL_ADDR,                              -- HPS Address in FPGA to write into.
-            IOCTL_DOUT       => IOCTL_DOUT,                              -- HPS Data to be written into FPGA.
-            IOCTL_DIN        => IOCTL_DIN_VIDEO                          -- HPS Data to be sent to HPS.
-        );
-
-    KEYS : keymatrix
-        port map (
-            RST_n            => T80_RST_n,
-
-            -- i8255
-            PA               => i8255_PA_O(3 downto 0),
-            PB               => i8255_PB_I,
-            STALL            => i8255_PA_O(4),
-
-            -- PS/2 Keyboard Data
-            PS2_KEY          => PS2_KEY,                                 -- PS2 Key data.
-
-            -- Different operations modes.
-            CONFIG           => CONFIG,
-
-            -- Clock signals created by this module.
-            CLKBUS           => CLKBUS,
-
-            -- HPS Interface
-            IOCTL_DOWNLOAD   => IOCTL_DOWNLOAD,                          -- HPS Downloading to FPGA.
-            IOCTL_UPLOAD     => IOCTL_UPLOAD,                            -- HPS Uploading from FPGA.
-            IOCTL_CLK        => IOCTL_CLK,                               -- HPS I/O Clock.
-            IOCTL_WR         => IOCTL_WR,                                -- HPS Write Enable to FPGA.
-            IOCTL_RD         => IOCTL_RD,                                -- HPS Read Enable from FPGA.
-            IOCTL_ADDR       => IOCTL_ADDR,                              -- HPS Address in FPGA to write into.
-            IOCTL_DOUT       => IOCTL_DOUT,                              -- HPS Data to be written into FPGA.
-            IOCTL_DIN        => IOCTL_DIN_KEY                            -- HPS Data to be sent to HPS.
-        );
-
-    TAPE0 : cmt
-        port map (
-            RST              => MZ_RESET,
-
-            -- Clock signals needed by this module.
-            CLKBUS           => CLKBUS,
-
-            -- Different operations modes.
-            CONFIG           => CONFIG,
-
-            -- Cassette magnetic tape signals.
-            CMTBUS           => CMTBUSi,                                 -- Output is fed from CMT into MCTRL and MZ..
-            CMT_READBIT      => CMT_READBITi,
-            CMT_MOTOR        => CMT_MOTORi,
-
-            -- HPS Interface
-            IOCTL_DOWNLOAD   => IOCTL_DOWNLOAD,                          -- HPS Downloading to FPGA.
-            IOCTL_UPLOAD     => IOCTL_UPLOAD,                            -- HPS Uploading from FPGA.
-            IOCTL_CLK        => IOCTL_CLK,                               -- HPS I/O Clock.
-            IOCTL_WR         => IOCTL_WR,                                -- HPS Write Enable to FPGA.
-            IOCTL_RD         => IOCTL_RD,                                -- HPS Read Enable from FPGA.
-            IOCTL_ADDR       => IOCTL_ADDR,                              -- HPS Address in FPGA to write into.
-            IOCTL_DOUT       => IOCTL_DOUT,                              -- HPS Data to be written into FPGA.
-            IOCTL_DIN        => IOCTL_DIN_CMT,                           -- HPS Data to be sent to HPS.
-
-            -- Debug Status Leds
-            DEBUG_STATUS_LEDS=> DEBUG_STATUS_LEDS(63 downto 40)          -- 24 leds to display cmt internal status.
-        );
+      );
 
     -- Parent signals onto local wires.
     --
     T80_BUSRQ_n              <= '1';
     T80_NMI_n                <= '1';
-    T80_CLKEN                <= '1';
+    T80_WAIT_n               <= '1';
     MZ_RESET                 <= SYSTEM_RESET;
 
     --
-    -- MZ-80A - Mask interrupt from 8253 if INTMSK low.
-    -- MZ-80K - Interrupt is from 8253 direct.
+    -- MZ-80A - Mask interrupt from 8254 if INTMSK low.
+    -- MZ-80K - Interrupt is from 8254 direct.
     T80_INT_ni               <= '0' when ((CONFIG(MZ_A)='1' or CONFIG(MZ700) = '1') and INTX='1' and INTMSK='1') or ((CONFIG(MZ_KC)='1' and INTX='1'))
                                 else '1';
     T80_INT_n                <= T80_INT_ni;
 
+    -- PIO and PIT signals. PIO, allow readback of output signals.
     --
-    -- Control Signals
-    --
-    --T80_IWR_n                <= T80_IORQ_n or T80_WR_n;
-
-    -- PIO and PIT signals.
-    --
-    i8255_PC_I(7)            <= VBLANKi;                                 -- V-BLANK signal
+    i8255_PC_I(7)            <= VBLANK;                                  -- V-BLANK signal
     i8255_PC_I(6)            <= CURSOR_BLINK;                            -- Cursor Blink
-    i8255_PC_I(5)            <= CMTBUSi(WRITEBIT);                       -- MZ in from CMT out.
-    i8255_PC_I(4)            <= CMTBUSi(SENSE);                          -- CMT Read/Write status.
-    i8255_PC_I(3)            <= CMT_MOTORi;                              -- Motor active status.
+    i8255_PC_I(5)            <= CMT_BUS_OUT(WRITEBIT);                   -- MZ in from CMT out.
+    i8255_PC_I(4)            <= CMT_BUS_OUT(SENSE);                      -- CMT Read/Write status.
+    i8255_PC_I(3)            <= i8255_PC_O(3) when i8255_PC_OE_n(3) = '0'
+                                else '0';
     i8255_PC_I(2)            <= INTMSK;                                  -- Red/Green LED MZ80K, Interrupt Mask MZ80A
-    i8255_PC_I(1)            <= CMT_READBITi;                            -- MZ out to CMT in
-    i8255_PC_I(0)            <= VGATE_n;                                 -- Video Output Enable
-    CMT_MOTORi               <= i8255_PC_O(3);
-    CMT_READBITi             <= i8255_PC_O(1);
-    CURSOR_RESET             <= i8255_PA_O(7);
-    INTMSK                   <= i8255_PC_O(2);
-    VGATE_n                  <= i8255_PC_O(0);
-    CMTBUS                   <= CMTBUSi;
+    i8255_PC_I(1)            <= i8255_PC_O(1) when i8255_PC_OE_n(1) = '0'
+                                else '0';
+    i8255_PC_I(0)            <= VGATE_ni;                                -- Video Output Enable
+    --
+    CMT_BUS_IN(REEL_MOTOR)   <= '0';
+    CMT_BUS_IN(READBIT)      <= i8255_PC_O(1) when i8255_PC_OE_n(1) = '0'
+                                else '0';                                -- Data Read Bit into CMT originating from MZ.
+    CMT_BUS_IN(STOP)         <= '0';
+    CMT_BUS_IN(PLAY)         <= i8255_PC_O(3) when i8255_PC_OE_n(3) = '0'
+                                else '0';                                -- Play motor on clock. A high pulse activates the motor.
+    CMT_BUS_IN(SEEK)         <= '0';
+    CMT_BUS_IN(DIRECTION)    <= '0';
+    CMT_BUS_IN(EJECT)        <= '1';
+    CMT_BUS_IN(WRITEENABLE)  <= '0';
+    CURSOR_RESET             <= i8255_PA_O(7) when i8255_PA_OE_n(7) = '0'
+                                else '1';
+    INTMSK                   <= i8255_PC_O(2) when i8255_PC_OE_n(2) = '0'
+                                else '1';
+    VGATE_ni                 <= i8255_PC_O(0) when i8255_PC_OE_n(0) = '0'
+                                else '1';
+    KEYB_SCAN                <= i8255_PA_O(3 downto 0) when i8255_PA_OE_n(3 downto 0) /= "1111"
+                                else "0000";                             -- Keyboard scan lines out.
+    KEYB_STALL               <= i8255_PA_O(4) when i8255_PA_OE_n(4) = '0'
+                                else '0';                                -- Keyboard Stall out.
+    i8255_PB_I               <= KEYB_DATA;                               -- Keyboard scan data in.
 
     --
     -- Data Bus Multiplexing, plex all the output devices onto the Z80 Data Input according to the CS.
     --
     T80_DI                   <= DOPPI     when CS_E0_n  ='0' and T80_RD_n = '0'                                -- Read from 8255
                                 else 
-                                DOPIT     when CS_E1_n  ='0' and T80_RD_n = '0'                                -- Read from 8253
+                                DOPIT     when CS_E1_n  ='0' and T80_RD_n = '0'                                -- Read from 8254
                                 else 
                                 DO367     when CS_E2_n  ='0' and T80_RD_n = '0'                                -- Read from LS367
                                 else 
-                                VRAMDO    when CS_D_n   ='0' and T80_RD_n = '0'                                -- Read from VRAM
-                                else
-                                VRAMDO    when CS_G_n   ='0' and T80_RD_n = '0'                                -- Read from GRAM
-                                else
                                 (others=>'1');
 
     -- HPS Bus Multiplexing for reads.
-    IOCTL_DIN                <= IOCTL_DIN_VIDEO  when IOCTL_ADDR(24 downto 16)="000000100" -- Video RAM
-                                else
-                                IOCTL_DIN_VIDEO  when IOCTL_ADDR(24 downto 16)="000001000" -- PCG
-                                else
-                                IOCTL_DIN_KEY    when IOCTL_ADDR(24 downto 16)="000000011"
-                                else
-                                IOCTL_DIN_CMT    when IOCTL_ADDR(24 downto 16)="000000101" or IOCTL_ADDR(24 downto 16)="000000110"
-                                else
-                                "1100110010101010";                                                            -- Test pattern.
+    IOCTL_DIN                <= "11111111000000001100110010101010";                                                            -- Test pattern.
 
     --
     -- Chip Select map.
     --
-    -- 0000 - 0FFF = CS_ROM_n  : MZ80K/A/700   = Monitor ROM or RAM (MZ80A rom swap)
-    -- 1000 - CFFF = CS_RAM_n  : MZ80K/A/700   = RAM
-    -- C000 - CFFF = CS_ROM_n  : MZ80A         = Monitor ROM (MZ80A rom swap)
-    -- D000 - D7FF = CS_D_n    : MZ80K/A/700   = VRAM
-    -- D800 - DFFF = CS_D_n    : MZ700         = Colour VRAM (MZ700)
+    -- 0000 - 0FFF = CS_ROM_ni : MZ80K/A/700   = Monitor ROM or RAM (MZ80A rom swap)
+    -- 1000 - CFFF = CS_RAM_ni : MZ80K/A/700   = RAM
+    -- C000 - CFFF = CS_ROM_ni : MZ80A         = Monitor ROM (MZ80A rom swap)
+    -- D000 - D7FF = CS_VRAM_ni: MZ80K/A/700   = VRAM
+    -- D800 - DFFF = CS_VRAM_ni: MZ700         = Colour VRAM (MZ700)
     -- E000 - E003 = CS_E0_n   : MZ80K/A/700   = 8255       
-    -- E004 - E007 = CS_E1_n   : MZ80K/A/700   = 8253
+    -- E004 - E007 = CS_E1_n   : MZ80K/A/700   = 8254
     -- E008 - E00B = CS_E2_n   : MZ80K/A/700   = LS367
     -- E00C - E00F = CS_ESWP_n : MZ80A         = Memory Swap (MZ80A)
     -- E010 - E013 = CS_ESWP_n : MZ80A         = Reset Memory Swap (MZ80A)
@@ -638,7 +425,7 @@ begin
     --                          else '1';
 
     -- D000 - DFFF
-    CS_D_n              <= '0'  when ( (T80_A16(15 downto 12)="1101" and T80_MREQ_n = '0' and MZ_GRAM_ENABLE = '0')
+    CS_VRAM_ni          <= '0'  when ( (T80_A16(15 downto 12)="1101" and T80_MREQ_n = '0' and MZ_GRAM_ENABLE = '0')
                                        and
                                        ( (CONFIG(MZ_KC)='1' or CONFIG(MZ_A)='1')
                                          or
@@ -647,7 +434,7 @@ begin
                                      ) 
                                 else '1';
     -- E000 - EFFF
-    CS_E_n              <= '0'  when ( (T80_A16(15 downto 12)="1110" and T80_MREQ_n = '0' and MZ_GRAM_ENABLE = '0')
+    CS_E_ni             <= '0'  when ( (T80_A16(15 downto 12)="1110" and T80_MREQ_n = '0' and MZ_GRAM_ENABLE = '0')
                                        and
                                        ( (CONFIG(MZ_KC)='1' or CONFIG(MZ_A)='1')
                                          or
@@ -656,13 +443,13 @@ begin
                                      )
                                 else '1';
     -- Sub division E000 - E200
-    CS_E0_n             <= '0'  when CS_E_n='0' and T80_A16(11 downto 2)="0000000000"                                                     -- 8255
+    CS_E0_n             <= '0'  when CS_E_ni = '0' and T80_A16(11 downto 2) = "0000000000"                                                -- 8255
                                 else '1';
-    CS_E1_n             <= '0'  when CS_E_n='0' and T80_A16(11 downto 2)="0000000001"                                                     -- 8253
+    CS_E1_n             <= '0'  when CS_E_ni = '0' and T80_A16(11 downto 2) = "0000000001"                                                -- 8254
                                 else '1';
-    CS_E2_n             <= '0'  when CS_E_n='0' and T80_A16(11 downto 2)="0000000010"                                                     -- LS367
+    CS_E2_n             <= '0'  when CS_E_ni = '0' and T80_A16(11 downto 2) = "0000000010"                                                -- LS367
                                 else '1';
-    CS_ESWP_n           <= '0'  when CONFIG(MZ_A)='1' and CS_E_n='0' and T80_RD_n='0' and T80_A16(11 downto 5)="0000000"                  -- ROM/RAM Swap
+    CS_ESWP_n           <= '0'  when CONFIG(MZ_A) = '1' and CS_E_ni = '0' and T80_RD_n = '0' and T80_A16(11 downto 5) = "0000000"         -- ROM/RAM Swap
                                 else '1';
 
     -- F000 - FFFF
@@ -676,7 +463,7 @@ begin
     --                          else '1';
 
     -- C000 - FFFF
-    CS_G_n              <= '0'  when MZ_GRAM_ENABLE = '1' and T80_A16(15 downto 14) = "11" and T80_MREQ_n='0'
+    CS_GRAM_ni          <= '0'  when MZ_GRAM_ENABLE = '1' and T80_A16(15 downto 14) = "11" and T80_MREQ_n='0'
                                 else '1';
     --
     CS_ROM_ni           <= '0'  when ( ( (T80_A16(15 downto 12)="0000") 
@@ -714,7 +501,6 @@ begin
                                        )
                                      ) and T80_MREQ_n='0'
                                 else '1';
-    CS_ROM_n            <= CS_ROM_ni;
     --
     CS_RAM_ni           <= '0'  when ( ( (T80_A16(15 downto 12)="0000")
                                          and 
@@ -757,134 +543,155 @@ begin
                                      )
                                      and T80_MREQ_n='0'
                                 else '1';
-    CS_RAM_n            <= CS_RAM_ni;
 
     --
     -- IO Select Map.
     -- E0 - E6 are used by the MZ700 to perform memory bank switching.
-    -- E8 - EF are Graphics enhancements.
-    --   E8       switches in 1 16Kb page (3 pages) of graphics ram to C000 - FFFF. This overrides all MZ700 page switching functions.
-    --   E9       switches out the graphics ram and returns to previous state.
-    --   EA,<val> sets the graphics mode. 7/6 = Operator (00=OR,01=AND,10=NAND,11=XOR), 5=GRAM Output Enable, 4 = VRAM Output Enable, 3/2 = Write mode (00=Page 1:Red, 01=Page 2:Green, 10=Page 3:Blue, 11=Indirect), 1/0=Read mode (00=Page 1:Red, 01=Page2:Green, 10=Page 3:Blue, 11=Not used).
-    --   EB,<val> sets the Red bit mask (1 bit = 1 pixel, 8 pixels per byte).
-    --   EC,<val> sets the Green bit mask (1 bit = 1 pixel, 8 pixels per byte).
-    --   ED,<val> sets the Blue bit mask (1 bit = 1 pixel, 8 pixels per byte).
     --
-    CS_BANKSWITCH_n     <= '0'  when T80_IORQ_n='0' and T80_WR_n = '0' and T80_A16(7 downto 4) = "1110"
+    -- IO Range for Graphics enhancements is set by the MCTRL DISPLAY2{7:3] register.
+    -- x[0|8],<val> sets the graphics mode. 7/6 = Operator (00=OR,01=AND,10=NAND,11=XOR), 5=GRAM Output Enable, 4 = VRAM Output Enable, 3/2 = Write mode (00=Page 1:Red, 01=Page 2:Green, 10=Page 3:Blue, 11=Indirect), 1/0=Read mode (00=Page 1:Red, 01=Page2:Green, 10=Page 3:Blue, 11=Not used).
+    -- x[1|9],<val> sets the Red bit mask (1 bit = 1 pixel, 8 pixels per byte).
+    -- x[2|A],<val> sets the Green bit mask (1 bit = 1 pixel, 8 pixels per byte).
+    -- x[3|B],<val> sets the Blue bit mask (1 bit = 1 pixel, 8 pixels per byte).
+    -- x[4|C]       switches in 1 16Kb page (3 pages) of graphics ram to C000 - FFFF. This overrides all MZ700 page switching functions.
+    -- x[5|D]       switches out the graphics ram and returns to previous state.
+    --
+    CS_BANKSWITCH_n     <= '0'  when T80_IORQ_n='0'     and T80_WR_n = '0' and T80_A16(7 downto 4) = "1110"
                                 else '1';
-    CS_MZ700BS_n        <= '0'  when CONFIG(MZ700)='1'     and CS_BANKSWITCH_n = '0' and T80_A16(3) = '0'
+    CS_MZ700BS_n        <= '0'  when CONFIG(MZ700)='1'  and CS_BANKSWITCH_n = '0' and T80_A16(3) = '0'
                                 else '1';
-    CS_IO_GRAM_n        <= '0'  when CS_BANKSWITCH_n = '0' and T80_A16(3) = '1'                                        -- IO E8-EF Graphics framebuffer.
+    CS_IO_E0_n          <= '0'  when CS_MZ700BS_n = '0' and T80_A16(2 downto 0) = "000"                                 -- IO E0 = 0000 -> 0FFF RAM,       D000 -> FFFF No Action
                                 else '1';
-    CS_IO_E0_n          <= '0'  when CS_MZ700BS_n = '0'    and T80_A16(2 downto 0) = "000"                             -- IO E0 = 0000 -> 0FFF RAM,       D000 -> FFFF No Action
+    CS_IO_E1_n          <= '0'  when CS_MZ700BS_n = '0' and T80_A16(2 downto 0) = "001"                                 -- IO E1 = 0000 -> 0FFF No Action, D000 -> FFFF RAM
                                 else '1';
-    CS_IO_E1_n          <= '0'  when CS_MZ700BS_n = '0'    and T80_A16(2 downto 0) = "001"                             -- IO E1 = 0000 -> 0FFF No Action, D000 -> FFFF RAM
+    CS_IO_E2_n          <= '0'  when CS_MZ700BS_n = '0' and T80_A16(2 downto 0) = "010"                                 -- IO E2 = 0000 -> 0FFF ROM,       D000 -> FFFF No Action
                                 else '1';
-    CS_IO_E2_n          <= '0'  when CS_MZ700BS_n = '0'    and T80_A16(2 downto 0) = "010"                             -- IO E2 = 0000 -> 0FFF ROM,       D000 -> FFFF No Action
+    CS_IO_E3_n          <= '0'  when CS_MZ700BS_n = '0' and T80_A16(2 downto 0) = "011"                                 -- IO E3 = 0000 -> 0FFF No Action, D000 -> FFFF VRAM + IO Ports
                                 else '1';
-    CS_IO_E3_n          <= '0'  when CS_MZ700BS_n = '0'    and T80_A16(2 downto 0) = "011"                             -- IO E3 = 0000 -> 0FFF No Action, D000 -> FFFF VRAM + IO Ports
+    CS_IO_E4_n          <= '0'  when CS_MZ700BS_n = '0' and T80_A16(2 downto 0) = "100"                                 -- IO E4 = 0000 -> 0FFF ROM,       D000 -> FFFF VRAM + IO Ports
                                 else '1';
-    CS_IO_E4_n          <= '0'  when CS_MZ700BS_n = '0'    and T80_A16(2 downto 0) = "100"                             -- IO E4 = 0000 -> 0FFF ROM,       D000 -> FFFF VRAM + IO Ports
+    CS_IO_E5_n          <= '0'  when CS_MZ700BS_n = '0' and T80_A16(2 downto 0) = "101"                                 -- IO E5 = 0000 -> 0FFF No Action, D000 -> FFFF Inhibit
                                 else '1';
-    CS_IO_E5_n          <= '0'  when CS_MZ700BS_n = '0'    and T80_A16(2 downto 0) = "101"                             -- IO E5 = 0000 -> 0FFF No Action, D000 -> FFFF Inhibit
+    CS_IO_E6_n          <= '0'  when CS_MZ700BS_n = '0' and T80_A16(2 downto 0) = "110"                                 -- IO E6 = 0000 -> 0FFF No Action, D000 -> FFFF Unlock Inhibit
                                 else '1';
-    CS_IO_E6_n          <= '0'  when CS_MZ700BS_n = '0'    and T80_A16(2 downto 0) = "110"                             -- IO E6 = 0000 -> 0FFF No Action, D000 -> FFFF Unlock Inhibit
+    CS_IO_GFB_ni        <= '0'  when T80_IORQ_n   = '0' and T80_A16(7 downto 3) = CONFIG(GRAMIOADDR) and T80_WR_n = '0' -- IO Range for Graphics framebuffer register controlled by mctrl register.
                                 else '1';
-    CS_IO_E8_n          <= '0'  when CS_IO_GRAM_n = '0'    and T80_A16(2 downto 0) = "000"                             -- IO E8 = C000 -> FFFF map to Graphics RAM.
-                                else '1';
-    CS_IO_E9_n          <= '0'  when CS_IO_GRAM_n = '0'    and T80_A16(2 downto 0) = "001"                             -- IO E9 = C000 -> FFFF revert to previous mode.
-                                else '1';
+    CS_IO_GRAMENABLE_n  <= '0'  when CS_IO_GFB_ni = '0' and T80_A16(2 downto 0) = "100"                                 -- IO Addr base+4 sets C000 -> FFFF map to Graphics RAM.
+                           else '1';
+    CS_IO_GRAMDISABLE_n <= '0'  when CS_IO_GFB_ni = '0' and T80_A16(2 downto 0) = "101"                                 -- IO Addr base+5 sets C000 -> FFFF revert to previous mode.
+                           else '1';
+
+    -- Send signals to module interface.
+    --
+    CS_ROM_n            <= CS_ROM_ni;
+    CS_RAM_n            <= CS_RAM_ni;
+    CS_VRAM_n           <= CS_VRAM_ni;
+    CS_MEM_G_n          <= CS_E_ni;
+    CS_GRAM_n           <= CS_GRAM_ni;
+    CS_IO_GFB_n         <= CS_IO_GFB_ni;
 
     -- MZ80A/1200 Memory Swap - swap rom out and ram in.
     --
     process( MZ_RESET, CS_ESWP_n ) begin
         if(MZ_RESET = '1') then
-            MZ_MEMORY_SWAP <= '0';
+            MZ_MEMORY_SWAP            <= '0';
         elsif(CS_ESWP_n'event and CS_ESWP_n='0') then
             if(T80_A16(4 downto 2) = "011") then
-                MZ_MEMORY_SWAP <= '1';
+                MZ_MEMORY_SWAP        <= '1';
             elsif(T80_A16(4 downto 2) = "100") then
-                MZ_MEMORY_SWAP <= '0';
+                MZ_MEMORY_SWAP        <= '0';
             end if;
         end if;
     end process;
 
     -- MZ700 - Latch wether to enable RAM or ROM at 0000->0FFF.
     --
-    process( MZ_RESET, CLKBUS(CKCPU), CS_IO_E0_n, CS_IO_E2_n, CS_IO_E4_n ) begin
+    process( MZ_RESET, CLKBUS(CKMASTER), CS_IO_E0_n, CS_IO_E2_n, CS_IO_E4_n ) begin
         if(MZ_RESET = '1') then
-            MZ_LOW_RAM_ENABLE <= '0';
+            MZ_LOW_RAM_ENABLE         <= '0';
 
-        elsif(CLKBUS(CKCPU)'event and CLKBUS(CKCPU)='1') then
+        elsif(CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER)='1') then
 
-            if(CS_IO_E0_n = '0') then
-                MZ_LOW_RAM_ENABLE <= '1';
+            if CLKBUS(CKENCPU) = '1' then
 
-            elsif(CS_IO_E2_n = '0') then
-                MZ_LOW_RAM_ENABLE <= '0';
-
-            elsif(CS_IO_E4_n = '0') then
-                MZ_LOW_RAM_ENABLE <= '0';
+                if(CS_IO_E0_n = '0') then
+                    MZ_LOW_RAM_ENABLE <= '1';
+    
+                elsif(CS_IO_E2_n = '0') then
+                    MZ_LOW_RAM_ENABLE <= '0';
+    
+                elsif(CS_IO_E4_n = '0') then
+                    MZ_LOW_RAM_ENABLE <= '0';
+                end if;
             end if;
         end if;
     end process;
 
     -- MZ700 - Latch wether to enable I/O or RAM at D000->FFFF.
     --
-    process( MZ_RESET, CLKBUS(CKCPU), CS_IO_E1_n, CS_IO_E3_n, CS_IO_E4_n, MZ_HIGH_RAM_INHIBIT ) begin
+    process( MZ_RESET, CLKBUS(CKMASTER), CS_IO_E1_n, CS_IO_E3_n, CS_IO_E4_n, MZ_HIGH_RAM_INHIBIT ) begin
         if(MZ_RESET = '1') then
-            MZ_HIGH_RAM_ENABLE <= '0';
-            MZ_INHIBIT_RESET   <= '0';
+            MZ_HIGH_RAM_ENABLE        <= '0';
+            MZ_INHIBIT_RESET          <= '0';
 
-        elsif(CLKBUS(CKCPU)'event and CLKBUS(CKCPU)='1') then
+        elsif(CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER)='1') then
 
-            if(CS_IO_E1_n = '0' and MZ_HIGH_RAM_INHIBIT = '0') then
-                MZ_HIGH_RAM_ENABLE  <= '1';
+            if CLKBUS(CKENCPU) = '1' then
 
-            elsif(CS_IO_E3_n = '0' and MZ_HIGH_RAM_INHIBIT = '0') then
-                MZ_HIGH_RAM_ENABLE  <= '0';
-
-            elsif(CS_IO_E4_n = '0') then
-                MZ_HIGH_RAM_ENABLE  <= '0';
-                MZ_INHIBIT_RESET    <= '1';
-
-            elsif(MZ_HIGH_RAM_INHIBIT = '0' and MZ_INHIBIT_RESET = '1') then
-                MZ_INHIBIT_RESET    <= '0';
+                if(CS_IO_E1_n = '0' and MZ_HIGH_RAM_INHIBIT = '0') then
+                    MZ_HIGH_RAM_ENABLE  <= '1';
+    
+                elsif(CS_IO_E3_n = '0' and MZ_HIGH_RAM_INHIBIT = '0') then
+                    MZ_HIGH_RAM_ENABLE  <= '0';
+    
+                elsif(CS_IO_E4_n = '0') then
+                    MZ_HIGH_RAM_ENABLE  <= '0';
+                    MZ_INHIBIT_RESET    <= '1';
+    
+                elsif(MZ_HIGH_RAM_INHIBIT = '0' and MZ_INHIBIT_RESET = '1') then
+                    MZ_INHIBIT_RESET    <= '0';
+                end if;
             end if;
         end if;
     end process;
 
     -- MZ700 - Latch wether to inhibit all functionality at D000->FFFF.
     --
-    process( MZ_RESET, CLKBUS(CKCPU), CS_IO_E5_n, CS_IO_E6_n, MZ_INHIBIT_RESET ) begin
+    process( MZ_RESET, CLKBUS(CKMASTER), CS_IO_E5_n, CS_IO_E6_n, MZ_INHIBIT_RESET ) begin
         if(MZ_RESET = '1') then
-            MZ_HIGH_RAM_INHIBIT     <= '0';
+            MZ_HIGH_RAM_INHIBIT         <= '0';
 
-        elsif(CLKBUS(CKCPU)'event and CLKBUS(CKCPU)='1') then
+        elsif(CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER)='1') then
 
-            if(CS_IO_E5_n = '0') then
-                MZ_HIGH_RAM_INHIBIT <= '1';
+            if CLKBUS(CKENCPU) = '1' then
 
-            elsif(CS_IO_E6_n = '0' or MZ_INHIBIT_RESET = '1') then
-                MZ_HIGH_RAM_INHIBIT <= '0';
+                if(CS_IO_E5_n = '0') then
+                    MZ_HIGH_RAM_INHIBIT <= '1';
+
+                elsif(CS_IO_E6_n = '0' or MZ_INHIBIT_RESET = '1') then
+                    MZ_HIGH_RAM_INHIBIT <= '0';
+                end if;
             end if;
         end if;
     end process;
 
     -- Graphics Ram - Latch wether to enable Graphics RAM page from C000 - FFFF.
     --
-    process( MZ_RESET, CLKBUS(CKCPU), CS_IO_E8_n, CS_IO_E9_n ) begin
+    process( MZ_RESET, CLKBUS(CKMASTER), CS_IO_GRAMENABLE_n, CS_IO_GRAMDISABLE_n ) begin
         if(MZ_RESET = '1') then
-            MZ_GRAM_ENABLE <= '0';
+            MZ_GRAM_ENABLE              <= '0';
 
-        elsif(CLKBUS(CKCPU)'event and CLKBUS(CKCPU)='1') then
+        elsif(CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER)='1') then
 
-            if(CS_IO_E8_n = '0') then
-                MZ_GRAM_ENABLE <= '1';
+            if CLKBUS(CKENCPU) = '1' then
 
-            elsif(CS_IO_E9_n = '0') then
-                MZ_GRAM_ENABLE <= '0';
+                if(CS_IO_GRAMENABLE_n = '0') then
+                    MZ_GRAM_ENABLE      <= '1';
 
+                elsif(CS_IO_GRAMDISABLE_n = '0') then
+                    MZ_GRAM_ENABLE      <= '0';
+
+                end if;
             end if;
         end if;
     end process;
@@ -892,18 +699,20 @@ begin
     --
     -- Cursor Base Clock  
     --
-    process( CLKBUS(CKPERIPH), T80_RST_n )
+    process( CLKBUS(CKMASTER), T80_RST_n )
         variable TCOUNT : std_logic_vector(15 downto 0);
     begin
         if T80_RST_n = '0' then
             TCOUNT          := (others=>'0');
 
-        elsif CLKBUS(CKPERIPH)'event and CLKBUS(CKPERIPH)='1' then
-            if( TCOUNT = 18371 ) then
-                TCOUNT      := (others=>'0');
-                CURSOR_CLK  <= not CURSOR_CLK;
-            else
-                TCOUNT      := TCOUNT + '1';
+        elsif CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER)='1' then
+            if CLKBUS(CKENPERIPH) = '1' then
+                if( TCOUNT = 18371 ) then
+                    TCOUNT      := (others=>'0');
+                    CURSOR_CLK  <= not CURSOR_CLK;
+                else
+                    TCOUNT      := TCOUNT + '1';
+                end if;
             end if;
         end if;
     end process;
@@ -927,12 +736,15 @@ begin
     --
     -- Sound gate control
     --
-    process( CLKBUS(CKPERIPH), T80_WR_n, CS_E2_n, T80_RST_n ) begin
+    process( CLKBUS(CKMASTER), T80_WR_n, CS_E2_n, T80_RST_n ) begin
         if( T80_RST_n = '0' ) then
-            SOUND_ENABLE <= '0';
+            SOUND_ENABLE     <= '0';
 
-        elsif( CLKBUS(CKPERIPH)'event and CLKBUS(CKPERIPH) = '1' and T80_WR_n = '0' and CS_E2_n = '0' ) then
-            SOUND_ENABLE <= T80_DO(0);
+        elsif CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER) = '1' then
+
+            if CLKBUS(CKENPERIPH) = '1' and T80_WR_n = '0' and CS_E2_n = '0' then
+                SOUND_ENABLE <= T80_DO(0);
+            end if;
         end if;
     end process;
 
@@ -940,12 +752,12 @@ begin
     --
     AUDIO_L    <= SOUND when CONFIG(AUDIOSRC) = '0'            -- Sound Output Left
                   else
-                  CMTBUSi(WRITEBIT);
+                  CMT_BUS_OUT(WRITEBIT);
     AUDIO_R    <= SOUND when CONFIG(AUDIOSRC) = '0'            -- Sound Output Right
                   else
-                  CMTBUSi(READBIT);
+                  CMT_BUS_OUT(READBIT);
 
-    -- The signal coming out of the 8253 is not a square wave and twice the frequency. The addition of a flip-flop to divide the
+    -- The signal coming out of the 8254 is not a square wave and twice the frequency. The addition of a flip-flop to divide the
     -- frequency by 2 results in a square wave of the correct audio frequency.
     process( SOUND_PULSE_X2 ) begin
         if( SOUND_PULSE_X2'event and SOUND_PULSE_X2 = '1' ) then
@@ -953,10 +765,10 @@ begin
         end if;
     end process;
 
-    -- MZ80 BLNK signal, enabled by VGATE being active and HBLANKi pulsing. If HBLANKi stops pulsing for more
+    -- MZ80 BLNK signal, enabled by VGATE being active and HBLANK pulsing. If HBLANK stops pulsing for more
     -- than 32ms, then BLNK goes inactive.
     --
-    process( CLKBUS(CKPERIPH), T80_RST_n )
+    process( CLKBUS(CKMASTER), T80_RST_n )
         variable TCOUNT     : std_logic_vector(6 downto 0);
         variable HBLANKLAST : std_logic;
     begin
@@ -964,22 +776,25 @@ begin
             BLNK_n          <= '1';
             TCOUNT          := (others=>'0');
 
-        elsif CLKBUS(CKPERIPH)'event and CLKBUS(CKPERIPH)='1' then
-            -- If HBLANKi goes active the first time or is retriggered, reset counter and set BLANKING active.
-            if (HBLANKi = '1' and TCOUNT = 0) or (HBLANKi = '1' and HBLANKLAST = '0') then
-                TCOUNT      := "0000001";
-                BLNK_n      <= '0';
+        elsif CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER)='1' then
 
-            -- If not retriggered and we get to the end of the count (32ms) then turn off the BLANKING signal.
-            elsif TCOUNT = 63 then
-                TCOUNT      := (others=>'0');
-                BLNK_n      <= '1';
-            else
-                TCOUNT      := TCOUNT + '1';
+            if CLKBUS(CKENPERIPH) = '1' then
+                -- If HBLANK goes active the first time or is retriggered, reset counter and set BLANKING active.
+                if (HBLANK = '1' and TCOUNT = 0) or (HBLANK = '1' and HBLANKLAST = '0') then
+                    TCOUNT      := "0000001";
+                    BLNK_n      <= '0';
+
+                -- If not retriggered and we get to the end of the count (32ms) then turn off the BLANKING signal.
+                elsif TCOUNT = 63 then
+                    TCOUNT      := (others=>'0');
+                    BLNK_n      <= '1';
+                else
+                    TCOUNT      := TCOUNT + '1';
+                end if;
+
+                -- Remember last state so we can retrigger.
+                HBLANKLAST := HBLANK;
             end if;
-
-            -- Remember last state so we can retrigger.
-            HBLANKLAST := HBLANKi;
         end if;
     end process;
 
@@ -987,87 +802,85 @@ begin
     -- Joystick readings, yet to be implemented.
     --
     DO367(0)          <= CURSOR_CLK;
-    DO367(7)          <= not HBLANKi when CONFIG(MZ700) = '1'
+    DO367(7)          <= not HBLANK  when CONFIG(MZ700) = '1'
                          else
-                         '1'         when CONFIG(MZ_A)  = '1' and (BLNK_n = '0' and VGATE_n = '0')
+                         '1'         when CONFIG(MZ_A)  = '1' and (BLNK_n = '0' and VGATE_ni = '0')
                          else '1';
     DO367(6 downto 1) <= (others=>'1');
 
     -- Video Output.
     --
-    HSYNC_n    <= HSYNC_ni;
-    VSYNC_n    <= VSYNC_ni;
-    R          <= Ri;
-    G          <= Gi;
-    B          <= Bi;
-    VBLANK     <= VBLANKi;
-    HBLANK     <= HBLANKi;
+    VGATE_n    <= VGATE_ni;
 
-    -- A simple 1*cpufreq second pulse to indicate accuracy of CPU frequency for debug purposes..
+    -- Only enable debugging LEDS if enabled in the config package.
     --
-    process (SYSTEM_RESET, CLKBUS(CKCPU))
-        variable cnt : integer range 0 to 1999999 := 0;
-    begin
-        if SYSTEM_RESET = '1' then
-            PULSECPU <= '0';
-            cnt      := 0;
-        elsif rising_edge(CLKBUS(CKCPU)) then
-            cnt      := cnt + 1;
-            if cnt = 0 then
-                PULSECPU <= not PULSECPU;
+    DEBUG80B: if DEBUG_ENABLE = 1 generate
+        -- A simple 1*cpufreq second pulse to indicate accuracy of CPU frequency for debug purposes..
+        --
+        process (SYSTEM_RESET, CLKBUS(CKMASTER))
+            variable cnt : integer range 0 to 1999999 := 0;
+        begin
+            if SYSTEM_RESET = '1' then
+                PULSECPU         <= '0';
+                cnt              := 0;
+            elsif rising_edge(CLKBUS(CKMASTER)) then
+                if CLKBUS(CKENCPU) = '1' then
+                    cnt          := cnt + 1;
+                    if cnt = 0 then
+                        PULSECPU <= not PULSECPU;
+                    end if;
+                end if;
             end if;
-        end if;
-    end process;
+        end process;
 
-    -- Debug leds.
-    --
-    DEBUG_STATUS_LEDS(0)  <= CS_D_n;
-    DEBUG_STATUS_LEDS(1)  <= CS_E_n;
-    DEBUG_STATUS_LEDS(2)  <= CS_E0_n;
-    DEBUG_STATUS_LEDS(3)  <= CS_E1_n;
-    DEBUG_STATUS_LEDS(4)  <= CS_E2_n;
-    DEBUG_STATUS_LEDS(5)  <= CS_ESWP_n;
-    DEBUG_STATUS_LEDS(6)  <= CS_ROM_ni;
-    DEBUG_STATUS_LEDS(7)  <= CS_RAM_ni;
-    --
-    DEBUG_STATUS_LEDS(8)  <= CS_BANKSWITCH_n;
-    DEBUG_STATUS_LEDS(9)  <= CS_IO_E0_n;
-    DEBUG_STATUS_LEDS(10) <= CS_IO_E1_n;
-    DEBUG_STATUS_LEDS(11) <= CS_IO_E2_n;
-    DEBUG_STATUS_LEDS(12) <= CS_IO_E3_n;
-    DEBUG_STATUS_LEDS(13) <= CS_IO_E4_n;
-    DEBUG_STATUS_LEDS(14) <= CS_IO_E5_n;
-    DEBUG_STATUS_LEDS(15) <= CS_IO_E6_n;
-    --
-    DEBUG_STATUS_LEDS(16) <= CS_IO_E8_n;
-    DEBUG_STATUS_LEDS(17) <= CS_IO_E9_n;
-    DEBUG_STATUS_LEDS(18) <= CS_IO_GRAM_n;
-    DEBUG_STATUS_LEDS(19) <= CS_G_n;
-    DEBUG_STATUS_LEDS(20) <= MZ_GRAM_ENABLE;
-    DEBUG_STATUS_LEDS(21) <= '0';
-    DEBUG_STATUS_LEDS(22) <= '0';
-    DEBUG_STATUS_LEDS(23) <= '0';
-    --
-    DEBUG_STATUS_LEDS(24) <= PULSECPU;
-    DEBUG_STATUS_LEDS(25) <= T80_INT_ni;
-    DEBUG_STATUS_LEDS(26) <= INTMSK;
-    DEBUG_STATUS_LEDS(27) <= MZ_MEMORY_SWAP;
-    DEBUG_STATUS_LEDS(28) <= MZ_LOW_RAM_ENABLE;
-    DEBUG_STATUS_LEDS(29) <= MZ_HIGH_RAM_ENABLE;
-    DEBUG_STATUS_LEDS(30) <= MZ_HIGH_RAM_INHIBIT;
-    DEBUG_STATUS_LEDS(31) <= MZ_INHIBIT_RESET;
-    --
-    DEBUG_STATUS_LEDS(32) <= '0';
-    DEBUG_STATUS_LEDS(33) <= '0';
-    DEBUG_STATUS_LEDS(34) <= '0';
-    DEBUG_STATUS_LEDS(35) <= '0';
-    DEBUG_STATUS_LEDS(36) <= CURSOR_BLINK;
-    DEBUG_STATUS_LEDS(37) <= SOUND_ENABLE;
-    DEBUG_STATUS_LEDS(38) <= MZ_RTC_CASCADE_CLK;
-    DEBUG_STATUS_LEDS(39) <= PULSECPU;
-    --
-    -- LEDS 40 .. 63 are provided by the CMT unit.
-    --
-    -- LEDS 64 .. 112 are available.
-    DEBUG_STATUS_LEDS(111 downto 64) <= (others => '0');
+        -- Debug leds.
+        --
+        DEBUG_STATUS_LEDS(0)  <= CS_VRAM_ni;
+        DEBUG_STATUS_LEDS(1)  <= CS_E_ni;
+        DEBUG_STATUS_LEDS(2)  <= CS_E0_n;
+        DEBUG_STATUS_LEDS(3)  <= CS_E1_n;
+        DEBUG_STATUS_LEDS(4)  <= CS_E2_n;
+        DEBUG_STATUS_LEDS(5)  <= CS_ESWP_n;
+        DEBUG_STATUS_LEDS(6)  <= CS_ROM_ni;
+        DEBUG_STATUS_LEDS(7)  <= CS_RAM_ni;
+        --
+        DEBUG_STATUS_LEDS(8)  <= CS_BANKSWITCH_n;
+        DEBUG_STATUS_LEDS(9)  <= CS_IO_E0_n;
+        DEBUG_STATUS_LEDS(10) <= CS_IO_E1_n;
+        DEBUG_STATUS_LEDS(11) <= CS_IO_E2_n;
+        DEBUG_STATUS_LEDS(12) <= CS_IO_E3_n;
+        DEBUG_STATUS_LEDS(13) <= CS_IO_E4_n;
+        DEBUG_STATUS_LEDS(14) <= CS_IO_E5_n;
+        DEBUG_STATUS_LEDS(15) <= CS_IO_E6_n;
+        --
+        DEBUG_STATUS_LEDS(16) <= CS_IO_GRAMENABLE_n;
+        DEBUG_STATUS_LEDS(17) <= CS_IO_GRAMDISABLE_n;
+        DEBUG_STATUS_LEDS(18) <= CS_IO_GFB_ni;
+        DEBUG_STATUS_LEDS(19) <= CS_GRAM_ni;
+        DEBUG_STATUS_LEDS(20) <= MZ_GRAM_ENABLE;
+        DEBUG_STATUS_LEDS(21) <= '0';
+        DEBUG_STATUS_LEDS(22) <= '0';
+        DEBUG_STATUS_LEDS(23) <= '0';
+        --
+        DEBUG_STATUS_LEDS(24) <= PULSECPU;
+        DEBUG_STATUS_LEDS(25) <= T80_INT_ni;
+        DEBUG_STATUS_LEDS(26) <= INTMSK;
+        DEBUG_STATUS_LEDS(27) <= MZ_MEMORY_SWAP;
+        DEBUG_STATUS_LEDS(28) <= MZ_LOW_RAM_ENABLE;
+        DEBUG_STATUS_LEDS(29) <= MZ_HIGH_RAM_ENABLE;
+        DEBUG_STATUS_LEDS(30) <= MZ_HIGH_RAM_INHIBIT;
+        DEBUG_STATUS_LEDS(31) <= MZ_INHIBIT_RESET;
+        --
+        DEBUG_STATUS_LEDS(32) <= '0';
+        DEBUG_STATUS_LEDS(33) <= '0';
+        DEBUG_STATUS_LEDS(34) <= '0';
+        DEBUG_STATUS_LEDS(35) <= '0';
+        DEBUG_STATUS_LEDS(36) <= CURSOR_BLINK;
+        DEBUG_STATUS_LEDS(37) <= SOUND_ENABLE;
+        DEBUG_STATUS_LEDS(38) <= MZ_RTC_CASCADE_CLK;
+        DEBUG_STATUS_LEDS(39) <= PULSECPU;
+        --
+        -- LEDS 40 .. 112 are available.
+        DEBUG_STATUS_LEDS(111 downto 40) <= (others => '0');
+    end generate;
 end rtl;

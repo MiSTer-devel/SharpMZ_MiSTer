@@ -602,15 +602,15 @@ TIMIN:  PUSH    AF
         LD      HL,(DSPXY)
         RET     
 
-        LD      C,H
+PRTHL:  LD      C,H
         POP     AF
         LD      A,H
-        CALL    L03C3
+        CALL    PRTHX
         LD      A,L
-        JR      L03C3                   
+        JR      PRTHX                   
         LD      B,E
         LD      B,E
-L03C3:  PUSH    AF
+PRTHX:  PUSH    AF
         RRCA    
         RRCA    
         RRCA    

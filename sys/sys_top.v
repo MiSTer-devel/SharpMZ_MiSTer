@@ -71,6 +71,9 @@ module sys_top
     output  [1:0] SDRAM_BA,
     output        SDRAM_CLK,
     output        SDRAM_CKE,
+`else
+    input         UART_RX,
+    output        UART_TX,
 `endif
 
     //////////// I/O ///////////
@@ -82,10 +85,10 @@ module sys_top
     input         BTN_RESET,
 
     //////////// SDIO ///////////
-  //inout   [3:0] SDIO_DAT,
-  //inout         SDIO_CMD,
-  //output        SDIO_CLK,
-  //input         SDIO_CD,
+    inout   [3:0] SDIO_DAT,
+    inout         SDIO_CMD,
+    output        SDIO_CLK,
+    input         SDIO_CD,
 
     ////////// MB KEY ///////////
     input   [1:0] KEY,
@@ -98,7 +101,7 @@ module sys_top
 );
 
 
-//assign SDIO_DAT[2:1] = 2'bZZ;
+assign SDIO_DAT[2:1] = 2'bZZ;
 
 
 //////////////////////////  LEDs  ///////////////////////////////////////
@@ -889,8 +892,6 @@ wire  [1:0] led_disk;
 wire vs_emu, hs_emu;
 sync_fix sync_v(FPGA_CLK3_50, vs_emu, vs);
 sync_fix sync_h(FPGA_CLK3_50, hs_emu, hs);
-//assign vs = vs_emu;
-//assign hs = hs_emu;
 
 emu emu
 (
@@ -933,11 +934,13 @@ emu emu
         //    Z -> DAT1
         //    Z -> DAT2
         // CS   -> DAT3
-        //.SD_SCK(SDIO_CLK),
-        //.SD_MOSI(SDIO_CMD),
-        //.SD_MISO(SDIO_DAT[0]),
-        //.SD_CS(SDIO_DAT[3]),
-        //.SD_CD(VGA_EN ? VGA_HS : SDIO_CD),
+        .SD_SCK(SDIO_CLK),
+        .SD_MOSI(SDIO_CMD),
+        .SD_MISO(SDIO_DAT[0]),
+        .SD_CS(SDIO_DAT[3]),
+        .SD_CD(VGA_EN ? VGA_HS : SDIO_CD),
+
+        
 
         .DDRAM_CLK(ram_clk),
         .DDRAM_ADDR(ram_address),
@@ -963,6 +966,9 @@ emu emu
         .SDRAM_nCAS(SDRAM_nCAS),
         .SDRAM_CLK(SDRAM_CLK),
         .SDRAM_CKE(SDRAM_CKE)
+`else
+        ,.UART_RX(UART_RX),
+        .UART_TX(UART_TX)
 `endif
     );
 

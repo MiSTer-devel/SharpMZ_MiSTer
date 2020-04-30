@@ -32,6 +32,6 @@ rm -f *.cdf
 rm -f *.rpt
 rm -f new_rtl_netlist
 rm -f old_rtl_netlist
-rm -f asm/*.obj
-rm -f asm/*.sym
+rm -f software/asm/*.obj
+rm -f software/asm/*.sym
 (cd ../Main_MiSTer; make clean)

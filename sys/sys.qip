@@ -1,5 +1,5 @@
 set_global_assignment -name VERILOG_FILE sys/sys_top.v
-set_global_assignment -name SDC_FILE sys/sys_top.sdc
+#set_global_assignment -name SDC_FILE sys/sys_top.sdc
 #set_global_assignment -name QIP_FILE sys/pll.qip
 #set_global_assignment -name QIP_FILE sys/pll_hdmi.qip
 #set_global_assignment -name QIP_FILE sys/pll_hdmi_cfg.qip

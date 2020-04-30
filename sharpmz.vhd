@@ -17,21 +17,23 @@
 --                  The tree is as follows;-
 --
 --                                      (emu) sharpmz.vhd (mz80c)	->	mz80c.vhd
---                                      |                                         -> mz80c_video.vhd
---                                      |                                         -> pcg.vhd
---                                      |                                         -> cmt.vhd (this may move to common and be shared with mz80b)
+--                                      |
+--                                      |
+--                                      |                                         -> cmt.vhd                   (common)
 --                                      |                                         -> keymatrix.vhd             (common)
 --                                      |                                         -> pll.v                     (common)
 --                                      |                                         -> clkgen.vhd                (common)
 --                                      |                                         -> T80                       (common)
 --                                      |                                         -> i8255                     (common)
+--                  sys_top.sv (emu) ->	(emu) sharpmz.vhd (hps_io) -> hps_io.sv
 --                                      |                                         -> i8253                     (common)
 --                                      |                                         -> dpram.vhd                 (common)
 --                                      |                                         -> dprom.vhd                 (common)
 --                                      |                                         -> mctrl.vhd                 (common)
---                  sys_top.sv (emu) ->	(emu) sharpmz.vhd (hps_io) -> hps_io.sv
+--                                      |                                         -> video.vhd                 (common)
 --                                      |
---                                      (emu) sharpmz.vhd (mz80b)	->	mz80b.vhd (under development)
+--                                      |
+--                                      (emu) sharpmz.vhd (mz80b)	->	mz80b.vhd
 --
 --                  The idea of the design is to keep the emulation as independent of the HPS
 --                  as possible (so it works standalone), only needing the HPS to set control registers,
@@ -71,42 +73,44 @@ library ieee;
 library pkgs;
 use ieee.std_logic_1164.all;
 use ieee.std_logic_unsigned.all;
+use pkgs.config_pkg.all;
 use pkgs.clkgen_pkg.all;
 use pkgs.mctrl_pkg.all;
 
 entity sharpmz is
   port(
         --------------------                Clock Input                         ----------------------------     
-        clkmaster             : in     std_logic;                               -- Master Clock(50MHz)
-        clksys                : out    std_logic;                               -- System clock.
-        clkvid                : out    std_logic;                               -- Pixel base clock of video.
+        CLKMASTER             : in     std_logic;                               -- Master Clock(50MHz)
+        CLKSYS                : out    std_logic;                               -- System clock.
+        CLKVID                : out    std_logic;                               -- Pixel base clock of video.
+        CLKIOP                : out    std_logic;                               -- IO Processor Clock.
         --------------------                Reset                               ----------------------------
-        cold_reset            : in     std_logic;
-        warm_reset            : in     std_logic;
-        --------------------                        main_leds                    ----------------------------
-        main_leds             : out    std_logic_vector(7 downto 0);            -- main_leds Green[7:0]
+        COLD_RESET            : in     std_logic;
+        WARM_RESET            : in     std_logic;
+        --------------------                        main_leds                   ----------------------------
+        MAIN_LEDS             : out    std_logic_vector(7 downto 0);            -- main_leds Green[7:0]
         --------------------                        PS2                         ----------------------------
-        ps2_key               : in     std_logic_vector(10 downto 0);           -- PS2 Key data.
+        PS2_KEY               : in     std_logic_vector(10 downto 0);           -- PS2 Key data.
         --------------------                        VGA                         ----------------------------
-        vga_hb_o              : out    std_logic;                               -- VGA Horizontal Blank
-        vga_vb_o              : out    std_logic;                               -- VGA Vertical Blank
-        vga_hs_o              : out    std_logic;                               -- VGA H_SYNC
-        vga_vs_o              : out    std_logic;                               -- VGA V_SYNC
-        vga_r_o               : out    std_logic_vector(7 downto 0);            -- VGA Red[3:0], [7:4] = 0
-        vga_g_o               : out    std_logic_vector(7 downto 0);            -- VGA Green[3:0]
-        vga_b_o               : out    std_logic_vector(7 downto 0);            -- VGA Blue[3:0]
+        VGA_HB_O              : out    std_logic;                               -- VGA Horizontal Blank
+        VGA_VB_O              : out    std_logic;                               -- VGA Vertical Blank
+        VGA_HS_O              : out    std_logic;                               -- VGA H_SYNC
+        VGA_VS_O              : out    std_logic;                               -- VGA V_SYNC
+        VGA_R_O               : out    std_logic_vector(7 downto 0);            -- VGA Red[3:0], [7:4] = 0
+        VGA_G_O               : out    std_logic_vector(7 downto 0);            -- VGA Green[3:0]
+        VGA_B_O               : out    std_logic_vector(7 downto 0);            -- VGA Blue[3:0]
         --------------------                        AUDIO                       ------------------------------
-        audio_l_o             : out    std_logic;
-        audio_r_o             : out    std_logic;
+        AUDIO_L_O             : out    std_logic;
+        AUDIO_R_O             : out    std_logic;
         --------------------                      HPS Interface                 ------------------------------
-        ioctl_download        : in     std_logic;                               -- HPS Downloading to FPGA.
-        ioctl_upload          : in     std_logic;                               -- HPS Uploading from FPGA.
-        ioctl_clk             : in     std_logic;                               -- HPS I/O Clock.
-        ioctl_wr              : in     std_logic;                               -- HPS Write Enable to FPGA.
-        ioctl_rd              : in     std_logic;                               -- HPS Read Enable from FPGA.
-        ioctl_addr            : in     std_logic_vector(24 downto 0);           -- HPS Address in FPGA to write into.
-        ioctl_dout            : in     std_logic_vector(15 downto 0);           -- HPS Data to be written into FPGA.
-        ioctl_din             : out    std_logic_vector(15 downto 0)            -- HPS Data to be read into HPS.
+        IOCTL_DOWNLOAD        : in     std_logic;                               -- Downloading to FPGA.
+        IOCTL_UPLOAD          : in     std_logic;                               -- Uploading from FPGA.
+        IOCTL_CLK             : in     std_logic;                               -- I/O Clock.
+        IOCTL_WR              : in     std_logic;                               -- Write Enable to FPGA.
+        IOCTL_RD              : in     std_logic;                               -- Read Enable from FPGA.
+        IOCTL_ADDR            : in     std_logic_vector(24 downto 0);           -- Address in FPGA to write into.
+        IOCTL_DOUT            : in     std_logic_vector(31 downto 0);           -- Data to be written into FPGA.
+        IOCTL_DIN             : out    std_logic_vector(31 downto 0)            -- Data to be read into HPS.
 );
 end sharpmz;
 
@@ -115,6 +119,13 @@ architecture rtl of sharpmz is
 -- Parent signals brought out onto wires.
 --
 signal MZ_PS2_KEY            :     std_logic_vector(10 downto 0);
+--
+-- Keyboard
+--
+signal MZ_KEYB_SCAN          :     std_logic_vector(3 downto 0);
+signal MZ_KEYB_DATA          :     std_logic_vector(7 downto 0);
+signal MZ_KEYB_STALL         :     std_logic;
+signal MZ_KEYB_BREAKDETECT   :     std_logic;
 --
 -- Master Control signals and configuration.
 --
@@ -126,7 +137,7 @@ signal MZ_MEMWR              :     std_logic;
 signal CLKBUS                :     std_logic_vector(CLKBUS_WIDTH);
 signal CONFIG                :     std_logic_vector(CONFIG_WIDTH);
 signal DEBUG                 :     std_logic_vector(DEBUG_WIDTH);
-signal MZ_CMTBUS             :     std_logic_vector(CMTBUS_WIDTH);
+signal MZ_CMT_BUS_OUT        :     std_logic_vector(CMT_BUS_OUT_WIDTH);
 --
 -- HPS Control.
 --
@@ -136,12 +147,15 @@ signal MZ_IOCTL_CLK          :     std_logic;
 signal MZ_IOCTL_WR           :     std_logic;
 signal MZ_IOCTL_RD           :     std_logic;
 signal MZ_IOCTL_ADDR         :     std_logic_vector(24 downto 0);
-signal MZ_IOCTL_DOUT         :     std_logic_vector(15 downto 0);
+signal MZ_IOCTL_DOUT         :     std_logic_vector(31 downto 0);
 signal MZ_IOCTL_DIN_SYSROM   :     std_logic_vector(7 downto 0);
 signal MZ_IOCTL_DIN_SYSRAM   :     std_logic_vector(7 downto 0);
-signal MZ_IOCTL_DIN_MZ80C    :     std_logic_vector(15 downto 0);
-signal MZ_IOCTL_DIN_MZ80B    :     std_logic_vector(15 downto 0);
-signal MZ_IOCTL_DIN_MCTRL    :     std_logic_vector(15 downto 0);
+signal MZ_IOCTL_DIN_VIDEO    :     std_logic_vector(31 downto 0);
+signal MZ_IOCTL_DIN_MZ80C    :     std_logic_vector(31 downto 0);
+signal MZ_IOCTL_DIN_MZ80B    :     std_logic_vector(31 downto 0);
+signal MZ_IOCTL_DIN_MCTRL    :     std_logic_vector(31 downto 0);
+signal MZ_IOCTL_DIN_CMT      :     std_logic_vector(31 downto 0);
+signal MZ_IOCTL_DIN_KEY      :     std_logic_vector(31 downto 0);
 signal MZ_IOCTL_WENROM       :     std_logic;
 signal MZ_IOCTL_WENRAM       :     std_logic;
 signal MZ_IOCTL_RENROM       :     std_logic;
@@ -149,37 +163,32 @@ signal MZ_IOCTL_RENRAM       :     std_logic;
 --
 -- T80 for MZ80C
 --
-signal MZ80C_RST_n           :     std_logic;
-signal MZ80C_MREQ_n          :     std_logic;
 signal MZ80C_BUSRQ_n         :     std_logic;
-signal MZ80C_IORQ_n          :     std_logic;
-signal MZ80C_WR_n            :     std_logic;
-signal MZ80C_RD_n            :     std_logic;
 signal MZ80C_MWR_n           :     std_logic;
 signal MZ80C_MRD_n           :     std_logic;
 signal MZ80C_IWR_n           :     std_logic;
 signal MZ80C_WAIT_n          :     std_logic;
-signal MZ80C_M1_n            :     std_logic;
-signal MZ80C_RFSH_n          :     std_logic;
-signal MZ80C_A16             :     std_logic_vector(15 downto 0);
 signal MZ80C_INT_n           :     std_logic;
-signal MZ80C_DO              :     std_logic_vector(7 downto 0);
 signal MZ80C_DI              :     std_logic_vector(7 downto 0);
-signal MZ80C_BUSAK_n         :     std_logic;
-signal MZ80C_CLK             :     std_logic;
-signal MZ80C_CLKEN           :     std_logic;
 signal MZ80C_NMI_n           :     std_logic;
-signal MZ80C_HALT_n          :     std_logic;
 --
 -- Tape Control 
 --
-signal MZ80C_CMTBUS          :     std_logic_vector(CMTBUS_WIDTH);
+signal MZ80C_CMT_BUS_IN      :     std_logic_vector(CMT_BUS_IN_WIDTH);
+--
+-- Keyboard
+--
+signal MZ80C_KEYB_SCAN       :     std_logic_vector(3 downto 0);
+signal MZ80C_KEYB_STALL      :     std_logic;
 --
 -- Video 
 --
-signal MZ_R                  :     std_logic;
-signal MZ_B                  :     std_logic;
-signal MZ_G                  :     std_logic;
+signal MZ_R                  :     std_logic_vector(7 downto 0);
+signal MZ_B                  :     std_logic_vector(7 downto 0);
+signal MZ_G                  :     std_logic_vector(7 downto 0);
+signal MZ_VGATE_n            :     std_logic;
+signal MZ_DISPLAY_INVERT_n   :     std_logic;
+signal MZ_DISPLAY_CHAR80     :     std_logic;
 signal MZ_HSYNC_n            :     std_logic;
 signal MZ_VSYNC_n            :     std_logic;
 signal MZ_HBLANK             :     std_logic;
@@ -189,21 +198,20 @@ signal MZ_VBLANK             :     std_logic;
 --
 signal MZ80C_CS_ROM_n        :     std_logic;
 signal MZ80C_CS_RAM_n        :     std_logic;
+signal MZ80C_CS_VRAM_n       :     std_logic;
+signal MZ80C_CS_MEM_G_n      :     std_logic;
+signal MZ80C_CS_GRAM_n       :     std_logic;
+signal MZ80C_CS_GRAM_80B_n   :     std_logic;
+signal MZ80C_CS_IO_GFB_n     :     std_logic;
 --
 -- Audio for MZ80C
 --
 signal MZ80C_AUDIO_L         :     std_logic;
 signal MZ80C_AUDIO_R         :     std_logic;
 --
--- Video for MZ80C
+-- Video signals for MZ80C
 --
-signal MZ80C_R               :     std_logic;
-signal MZ80C_G               :     std_logic;
-signal MZ80C_B               :     std_logic;
-signal MZ80C_HSYNC_n         :     std_logic;
-signal MZ80C_VSYNC_n         :     std_logic;
-signal MZ80C_HBLANK          :     std_logic;
-signal MZ80C_VBLANK          :     std_logic;
+signal MZ80C_VGATE_n         :     std_logic;
 --
 -- Debug for MZ80C
 --
@@ -211,52 +219,41 @@ signal MZ80C_DEBUG_LEDS      :     std_logic_vector(111 downto 0);
 --
 -- T80 for MZ80B
 --
-signal MZ80B_RST_n           :     std_logic;
-signal MZ80B_MREQ_n          :     std_logic;
 signal MZ80B_BUSRQ_n         :     std_logic;
-signal MZ80B_IORQ_n          :     std_logic;
-signal MZ80B_WR_n            :     std_logic;
-signal MZ80B_RD_n            :     std_logic;
 signal MZ80B_MWR_n           :     std_logic;
 signal MZ80B_MRD_n           :     std_logic;
 signal MZ80B_IWR_n           :     std_logic;
 signal MZ80B_WAIT_n          :     std_logic;
-signal MZ80B_M1_n            :     std_logic;
-signal MZ80B_RFSH_n          :     std_logic;
-signal MZ80B_A16             :     std_logic_vector(15 downto 0);
 signal MZ80B_INT_n           :     std_logic;
-signal MZ80B_DO              :     std_logic_vector(7 downto 0);
 signal MZ80B_DI              :     std_logic_vector(7 downto 0);
-signal MZ80B_BUSAK_n         :     std_logic;
-signal MZ80B_CLK             :     std_logic;
-signal MZ80B_CLKEN           :     std_logic;
 signal MZ80B_NMI_n           :     std_logic;
-signal MZ80B_HALT_n          :     std_logic;
 --
 -- Selects for MZ80B.
 --
 signal MZ80B_CS_ROM_n        :     std_logic;
 signal MZ80B_CS_RAM_n        :     std_logic;
+signal MZ80B_CS_VRAM_n       :     std_logic;
+signal MZ80B_CS_GRAM_n       :     std_logic;
+signal MZ80B_CS_IO_GFB_n     :     std_logic;
+signal MZ80B_CS_IO_G_n       :     std_logic;
 --
 -- Audio for MZ80B
 --
 signal MZ80B_AUDIO_L         :     std_logic;
 signal MZ80B_AUDIO_R         :     std_logic;
 --
+-- Video signals for MZ80B
+--
+signal MZ80B_VGATE_n         :     std_logic;
+--
 -- Tape Control 
 --
-signal MZ80B_CMTBUS          :     std_logic_vector(CMTBUS_WIDTH);
+signal MZ80B_CMT_BUS_IN      :     std_logic_vector(CMT_BUS_IN_WIDTH);
 --
--- Video for MZ80B
+-- Keyboard
 --
-signal MZ80B_R               :     std_logic;
-signal MZ80B_G               :     std_logic;
-signal MZ80B_B               :     std_logic;
-signal MZ80B_HSYNC_n         :     std_logic;
-signal MZ80B_VSYNC_n         :     std_logic;
-signal MZ80B_HBLANK          :     std_logic;
-signal MZ80B_VBLANK          :     std_logic;
---signal MZ80B_CLKVIDEO        :     std_logic;
+signal MZ80B_KEYB_SCAN       :     std_logic_vector(3 downto 0);
+signal MZ80B_KEYB_STALL      :     std_logic;
 --
 -- Debug for MZ80B
 --
@@ -270,8 +267,6 @@ signal T80_BUSRQ_n           :     std_logic;
 signal T80_IORQ_n            :     std_logic;
 signal T80_WR_n              :     std_logic;
 signal T80_RD_n              :     std_logic;
-signal T80_MWR_n             :     std_logic;
-signal T80_MRD_n             :     std_logic;
 signal T80_WAIT_n            :     std_logic;
 signal T80_M1_n              :     std_logic;
 signal T80_RFSH_n            :     std_logic;
@@ -280,32 +275,44 @@ signal T80_INT_n             :     std_logic;
 signal T80_DO                :     std_logic_vector(7 downto 0);
 signal T80_DI                :     std_logic_vector(7 downto 0);
 signal T80_BUSAK_n           :     std_logic;
-signal T80_CLKEN             :     std_logic;
 signal T80_NMI_n             :     std_logic;
 signal T80_HALT_n            :     std_logic;
 --
 -- Decodes, control, misc
 --
 signal WENSYSRAM             :     std_logic;
-signal CSBANKSWITCH_n        :     std_logic;
 --
 -- Monitor ROM
 --
-signal DOSYSROM              :     std_logic_vector(7 downto 0);
-signal CS_ROM_n              :     std_logic;
+signal SYSROM_DO             :     std_logic_vector(7 downto 0);
+signal MZ_CS_ROM_n           :     std_logic;
 signal MROM_BANK             :     std_logic_vector(5 downto 0);
 --
 -- Static RAM
 --
-signal DOSYSRAM              :     std_logic_vector(7 downto 0);
-signal CS_RAM_n              :     std_logic;
+signal SYSRAM_DO             :     std_logic_vector(7 downto 0);
+signal MZ_CS_RAM_n           :     std_logic;
+signal MZ_SYSMEM_A16         :     std_logic_vector(15 downto 0);
+signal MZ_SWP_MEM_BANK_n     :     std_logic;
+--
+-- Graphics RAM control signals.
+--
+signal VRAM_DO               :     std_logic_vector(7 downto 0);
+signal MZ_CS_VRAM_n          :     std_logic;
+signal MZ_CS_MEM_G_n         :     std_logic;
+signal MZ_CS_GRAM_n          :     std_logic;
+signal MZ_CS_GRAM_80B_n      :     std_logic;
+signal MZ_CS_IO_GFB_n        :     std_logic;
+signal MZ_CS_IO_G_n          :     std_logic;
+signal VIDEO_WAIT_n          :     std_logic;
+--
+-- Tape Control 
+--
+signal MZ_CMT_BUS_IN         :     std_logic_vector(CMT_BUS_IN_WIDTH);
+signal MZ_CMT_DEBUG_LEDS     :     std_logic_vector(31 downto 0);
 --
 -- Debug and internal process signals.
 --
-signal Q0                    :     std_logic;
-signal Q1                    :     std_logic;
-signal Q2                    :     std_logic;
-signal Q3                    :     std_logic;
 signal debug_counter         :     integer range 0 to 13       := 0;
 signal flip_counter          :     integer range 0 to 10000000 := 0;
 signal block_flip            :     integer range 0 to 800000   := 0;
@@ -400,17 +407,134 @@ component mctrl
           IOCTL_WR           : in  std_logic;                            -- HPS Write Enable to FPGA.
           IOCTL_RD           : in  std_logic;                            -- HPS Read Enable from FPGA.
           IOCTL_ADDR         : in  std_logic_vector(24 downto 0);        -- HPS Address in FPGA to write into.
-          IOCTL_DOUT         : in  std_logic_vector(15 downto 0);        -- HPS Data to be written into FPGA.
-          IOCTL_DIN          : out std_logic_vector(15 downto 0);        -- HPS Data to be read into HPS.
+          IOCTL_DOUT         : in  std_logic_vector(31 downto 0);        -- HPS Data to be written into FPGA.
+          IOCTL_DIN          : out std_logic_vector(31 downto 0);        -- HPS Data to be read into HPS.
 
           -- Different operations modes.
           CONFIG             : out std_logic_vector(CONFIG_WIDTH);
 
           -- Cassette magnetic tape signals.
-          CMTBUS             : in  std_logic_vector(CMTBUS_WIDTH);
+          CMT_BUS_OUT        : in  std_logic_vector(CMT_BUS_OUT_WIDTH);
+          CMT_BUS_IN         : in  std_logic_vector(CMT_BUS_IN_WIDTH);
+
+          -- MZ80B series can dynamically change the video frequency to attain 40/80 character display.
+          CONFIG_CHAR80      : in  std_logic;
 
           -- Debug modes.
           DEBUG              : out std_logic_vector(DEBUG_WIDTH) 
+    );
+end component;
+
+component video is
+    Port (
+        RST_n                : in  std_logic;                            -- Reset
+
+        -- Different operations modes.
+        CONFIG               : in  std_logic_vector(CONFIG_WIDTH);
+
+        -- Clocks
+        CLKBUS               : in  std_logic_vector(CLKBUS_WIDTH);       -- Clock signals created by clkgen module.
+
+        -- CPU Signals
+        T80_A                : in  std_logic_vector(13 downto 0);        -- CPU Address Bus
+        T80_RD_n             : in  std_logic;                            -- CPU Read Signal
+        T80_WR_n             : in  std_logic;                            -- CPU Write Signal
+        T80_MREQ_n           : in  std_logic;                            -- CPU Memory Request
+        T80_BUSACK_n         : in  std_logic;                            -- CPU Bus Acknowledge
+        T80_WAIT_n           : out std_logic;                            -- CPU Wait Request
+        T80_DI               : in  std_logic_vector(7 downto 0);         -- CPU Data Bus in
+        T80_DO               : out std_logic_vector(7 downto 0);         -- CPU Data Bus out
+
+        -- Selects.
+        CS_VRAM_n            : in  std_logic;                            -- VRAM Select
+        CS_MEM_G_n           : in  std_logic;                            -- Peripherals Select
+        CS_GRAM_n            : in  std_logic;                            -- Colour GRAM Select
+        CS_GRAM_80B_n        : in  std_logic;                            -- MZ80B GRAM Select
+        CS_IO_GFB_n          : in  std_logic;                            -- Graphics FB IO Select range
+        CS_IO_G_n            : in  std_logic;                            -- Graphics Options IO Select range
+
+        -- Video Signals
+        VGATE_n              : in  std_logic;                            -- Video Output Control
+        INVERSE_n            : in  std_logic;                            -- Invert video display.
+        CONFIG_CHAR80        : in  std_logic;                            -- 40 Char = 0, 80 Char = 1 select.
+        HBLANK               : out std_logic;                            -- Horizontal Blanking
+        VBLANK               : out std_logic;                            -- Vertical Blanking
+        HSYNC_n              : out std_logic;                            -- Horizontal Sync
+        VSYNC_n              : out std_logic;                            -- Vertical Sync
+        ROUT                 : out std_logic_vector(7 downto 0);         -- Red Output
+        GOUT                 : out std_logic_vector(7 downto 0);         -- Green Output
+        BOUT                 : out std_logic_vector(7 downto 0);         -- Green Output
+
+        -- HPS Interface
+        IOCTL_DOWNLOAD       : in  std_logic;                            -- HPS Downloading to FPGA.
+        IOCTL_UPLOAD         : in  std_logic;                            -- HPS Uploading from FPGA.
+        IOCTL_CLK            : in  std_logic;                            -- HPS I/O Clock.
+        IOCTL_WR             : in  std_logic;                            -- HPS Write Enable to FPGA.
+        IOCTL_RD             : in  std_logic;                            -- HPS Read Enable to FPGA.
+        IOCTL_ADDR           : in  std_logic_vector(24 downto 0);        -- HPS Address in FPGA to write into.
+        IOCTL_DOUT           : in  std_logic_vector(31 downto 0);        -- HPS Data to be written into FPGA.
+        IOCTL_DIN            : out std_logic_vector(31 downto 0)         -- HPS Data to be read into HPS.
+    );
+end component;
+
+component keymatrix
+    Port (
+        RST_n                : in  std_logic;
+
+        -- i8255
+        PA                   : in  std_logic_vector(3 downto 0);
+        PB                   : out std_logic_vector(7 downto 0);
+        STALL                : in  std_logic;
+        BREAKDETECT          : out std_logic;
+
+        -- PS/2 Keyboard Data
+        PS2_KEY              : in  std_logic_vector(10 downto 0);        -- PS2 Key data.
+
+        -- Different operations modes.
+        CONFIG               : in  std_logic_vector(CONFIG_WIDTH);
+
+        -- Clock signals created by this module.
+        CLKBUS               : in  std_logic_vector(CLKBUS_WIDTH);
+
+        -- HPS Interface
+        IOCTL_DOWNLOAD       : in  std_logic;                            -- HPS Downloading to FPGA.
+        IOCTL_UPLOAD         : in  std_logic;                            -- HPS Uploading from FPGA.
+        IOCTL_CLK            : in  std_logic;                            -- HPS I/O Clock.
+        IOCTL_WR             : in  std_logic;                            -- HPS Write Enable to FPGA.
+        IOCTL_RD             : in  std_logic;                            -- HPS Read Enable to FPGA.
+        IOCTL_ADDR           : in  std_logic_vector(24 downto 0);        -- HPS Address in FPGA to write into.
+        IOCTL_DOUT           : in  std_logic_vector(31 downto 0);        -- HPS Data to be written into FPGA.
+        IOCTL_DIN            : out std_logic_vector(31 downto 0)         -- HPS Data to be read into HPS.
+    );
+end component;
+
+component cmt
+    Port (
+        -- HPS Bus
+        RST                  : in  std_logic;
+
+        -- Clock signals created by this module.
+        CLKBUS               : in  std_logic_vector(CLKBUS_WIDTH);
+
+        -- Different operations modes.
+        CONFIG               : in  std_logic_vector(CONFIG_WIDTH);
+
+        -- Cassette magnetic tape signals.
+        CMT_BUS_OUT          : out std_logic_vector(CMT_BUS_OUT_WIDTH);
+        CMT_BUS_IN           : in  std_logic_vector(CMT_BUS_IN_WIDTH);
+
+        -- HPS Interface
+        IOCTL_DOWNLOAD       : in  std_logic;                            -- HPS Downloading to FPGA.
+        IOCTL_UPLOAD         : in  std_logic;                            -- HPS Uploading from FPGA.
+        IOCTL_CLK            : in  std_logic;                            -- HPS I/O Clock.
+        IOCTL_WR             : in  std_logic;                            -- HPS Write Enable to FPGA.
+        IOCTL_RD             : in  std_logic;                            -- HPS Read Enable from FPGA.
+        IOCTL_ADDR           : in  std_logic_vector(24 downto 0);        -- HPS Address in FPGA to write into.
+        IOCTL_DOUT           : in  std_logic_vector(31 downto 0);        -- HPS Data to be written into FPGA.
+        IOCTL_DIN            : out std_logic_vector(31 downto 0);        -- HPS Data to be read into HPS.
+
+        -- Debug Status Leds
+        DEBUG_STATUS_LEDS    : out std_logic_vector(31 downto 0)         -- 24 leds to display cmt internal status.
     );
 end component;
 
@@ -420,12 +544,11 @@ component mz80c
           CLKBUS             : in  std_logic_vector(CLKBUS_WIDTH);    -- Clock signals created by this module.
 
           -- Resets.
+          COLD_RESET         : in  std_logic;
           SYSTEM_RESET       : in  std_logic;
           
           -- Z80 CPU
           T80_RST_n          : in  std_logic;
-          T80_CLK            : in  std_logic;
-          T80_CLKEN          : out std_logic;
           T80_WAIT_n         : out std_logic;
           T80_INT_n          : out std_logic;
           T80_NMI_n          : out std_logic;
@@ -445,28 +568,31 @@ component mz80c
           -- Chip selects to common resources.
           CS_ROM_n           : out std_logic;
           CS_RAM_n           : out std_logic;
+          CS_VRAM_n          : out std_logic;                            -- VRAM Select
+          CS_MEM_G_n         : out std_logic;                            -- Memory mapped Peripherals Select
+          CS_GRAM_n          : out std_logic;                            -- Colour GRAM Select
+          CS_IO_GFB_n        : out std_logic;                            -- Graphics FB IO Select range
 
           -- Audio.
           AUDIO_L            : out std_logic;
           AUDIO_R            : out std_logic;
 
-          -- Video signals.
-          R                  : out std_logic;
-          G                  : out std_logic;
-          B                  : out std_logic;
-          HSYNC_n            : out std_logic;
-          VSYNC_n            : out std_logic;
-          HBLANK             : out std_logic;
-          VBLANK             : out std_logic;
-
           -- Different operations modes.
           CONFIG             : in  std_logic_vector(CONFIG_WIDTH);
 
-          -- Cassette magnetic tape signals.
-          CMTBUS             : out std_logic_vector(CMTBUS_WIDTH);
-
           -- I/O                                                         -- I/O down to the core.
-          PS2_KEY            : in  std_logic_vector(10 downto 0);
+          KEYB_SCAN          : out std_logic_vector(3 downto 0);         -- Keyboard scan lines out.
+          KEYB_DATA          : in  std_logic_vector(7 downto 0);         -- Keyboard scan data in.
+          KEYB_STALL         : out std_logic;                            -- Keyboard Stall out.
+
+          -- Cassette magnetic tape signals.
+          CMT_BUS_OUT        : in  std_logic_vector(CMT_BUS_OUT_WIDTH);
+          CMT_BUS_IN         : out std_logic_vector(CMT_BUS_IN_WIDTH);
+
+          -- Video
+          VGATE_n            : out std_logic;
+          HBLANK             : in  std_logic;                            -- Horizontal Blanking Signal
+          VBLANK             : in  std_logic;                            -- Vertical Blanking Signal          
 
           -- HPS Interface
           IOCTL_DOWNLOAD     : in  std_logic;                            -- HPS Downloading to FPGA.
@@ -475,8 +601,8 @@ component mz80c
           IOCTL_WR           : in  std_logic;                            -- HPS Write Enable to FPGA.
           IOCTL_RD           : in  std_logic;                            -- HPS Read Enable from FPGA.
           IOCTL_ADDR         : in  std_logic_vector(24 downto 0);        -- HPS Address in FPGA to write into.
-          IOCTL_DOUT         : in  std_logic_vector(15 downto 0);        -- HPS Data to be written into FPGA.
-          IOCTL_DIN          : out std_logic_vector(15 downto 0);        -- HPS Data to be read into HPS.
+          IOCTL_DOUT         : in  std_logic_vector(31 downto 0);        -- HPS Data to be written into FPGA.
+          IOCTL_DIN          : out std_logic_vector(31 downto 0);        -- HPS Data to be read into HPS.
 
           -- Debug Status Leds
           DEBUG_STATUS_LEDS  : out std_logic_vector(111 downto 0)        -- 112 leds to display status.
@@ -489,12 +615,11 @@ component mz80b
           CLKBUS             : in  std_logic_vector(CLKBUS_WIDTH);    -- Clock signals created by this module.
 
           -- Resets.
+          COLD_RESET         : in  std_logic;
           SYSTEM_RESET       : in  std_logic;
           
           -- Z80 CPU
           T80_RST_n          : in  std_logic;
-          T80_CLK            : in  std_logic;
-          T80_CLKEN          : out std_logic;
           T80_WAIT_n         : out std_logic;
           T80_INT_n          : out std_logic;
           T80_NMI_n          : out std_logic;
@@ -514,28 +639,36 @@ component mz80b
           -- Chip selects to common resources.
           CS_ROM_n           : out std_logic;
           CS_RAM_n           : out std_logic;
+          CS_VRAM_n          : out std_logic;                            -- VRAM Select
+          CS_GRAM_n          : out std_logic;                            -- Colour GRAM Select
+          CS_GRAM_80B_n      : out std_logic;                            -- MZ80B GRAM Select
+          CS_IO_GFB_n        : out std_logic;                            -- Graphics FB IO Select range
+          CS_IO_G_n          : out std_logic;                            -- Graphics Options IO Select range
+          CS_SWP_MEMBANK_n   : out std_logic;                            -- Move lower 32K into upper block.
 
           -- Audio.
           AUDIO_L            : out std_logic;
           AUDIO_R            : out std_logic;
 
-          -- Video signals.
-          R                  : out std_logic;
-          G                  : out std_logic;
-          B                  : out std_logic;
-          HSYNC_n            : out std_logic;
-          VSYNC_n            : out std_logic;
-          HBLANK             : out std_logic;
-          VBLANK             : out std_logic;
-
           -- Different operations modes.
           CONFIG             : in  std_logic_vector(CONFIG_WIDTH);
 
-          -- Cassette magnetic tape signals.
-          CMTBUS             : out std_logic_vector(CMTBUS_WIDTH);
-
           -- I/O                                                         -- I/O down to the core.
-          PS2_KEY            : in  std_logic_vector(10 downto 0);
+          KEYB_SCAN          : out std_logic_vector(3 downto 0);         -- Keyboard scan lines out.
+          KEYB_DATA          : in  std_logic_vector(7 downto 0);         -- Keyboard scan data in.
+          KEYB_STALL         : out std_logic;                            -- Keyboard Stall out.
+          KEYB_BREAKDETECT   : in  std_logic;                            -- Keyboard break detect.
+
+          -- Cassette magnetic tape signals.
+          CMT_BUS_OUT        : in  std_logic_vector(CMT_BUS_OUT_WIDTH);
+          CMT_BUS_IN         : out std_logic_vector(CMT_BUS_IN_WIDTH);
+
+          -- Video
+          VGATE_n            : out std_logic;
+          INVERSE_n          : out std_logic;                            -- Invert video display.
+          CONFIG_CHAR80      : out std_logic;                            -- 40 Char = 0, 80 Char = 1 select.
+          HBLANK             : in  std_logic;                            -- Horizontal Blanking Signal
+          VBLANK             : in  std_logic;                            -- Vertical Blanking Signal
 
           -- HPS Interface
           IOCTL_DOWNLOAD     : in  std_logic;                            -- HPS Downloading to FPGA.
@@ -544,8 +677,8 @@ component mz80b
           IOCTL_WR           : in  std_logic;                            -- HPS Write Enable to FPGA.
           IOCTL_RD           : in  std_logic;                            -- HPS Read Enable from FPGA.
           IOCTL_ADDR         : in  std_logic_vector(24 downto 0);        -- HPS Address in FPGA to write into.
-          IOCTL_DOUT         : in  std_logic_vector(15 downto 0);        -- HPS Data to be written into FPGA.
-          IOCTL_DIN          : out std_logic_vector(15 downto 0);        -- HPS Data to be read into HPS.
+          IOCTL_DOUT         : in  std_logic_vector(31 downto 0);        -- HPS Data to be written into FPGA.
+          IOCTL_DIN          : out std_logic_vector(31 downto 0);        -- HPS Data to be read into HPS.
 
           -- Debug Status Leds
           DEBUG_STATUS_LEDS  : out std_logic_vector(111 downto 0)        -- 112 leds to display status.
@@ -561,7 +694,7 @@ begin
             RST              => cold_reset,                              -- Reset
 
             -- Clocks
-            CKBASE           => clkmaster,                               -- Input clocks from top level.
+            CKBASE           => CLKMASTER,                               -- Input clocks from top level.
             CLKBUS           => CLKBUS,                                  -- Clock signals created by this module.
 
             -- Different operations modes.
@@ -578,31 +711,31 @@ begin
             IOWait           => 1                                        -- 0 => Single cycle I/O, 1 => Std I/O cycle
         )
         port map (
-            RESET_n          => T80_RST_n,
-            CLK_n            => CLKBUS(CKCPU),                           -- T80se uses positive level clock.
-            CLKEN            => T80_CLKEN,
-            WAIT_n           => T80_WAIT_n,
-            INT_n            => T80_INT_n,
-            NMI_n            => T80_NMI_n,
-            BUSRQ_n          => T80_BUSRQ_n,
-            M1_n             => T80_M1_n,
-            MREQ_n           => T80_MREQ_n,
-            IORQ_n           => T80_IORQ_n,
-            RD_n             => T80_RD_n,
-            WR_n             => T80_WR_n,
-            RFSH_n           => T80_RFSH_n,                              --RFSH_n
-            HALT_n           => T80_HALT_n,
-            BUSAK_n          => T80_BUSAK_n,
-            A                => T80_A16,
-            DI               => T80_DI,
-            DO               => T80_DO
+            RESET_n          => T80_RST_n,                               -- Reset signal.
+            CLK_n            => CLKBUS(CKMASTER),                        -- T80se uses positive level clock.
+            CLKEN            => CLKBUS(CKENCPU),                         -- Pulse the master clock at the required CPU frequency.
+            WAIT_n           => T80_WAIT_n,                              -- WAIT_n signal into the CPU to prolong a memory cycle.
+            INT_n            => T80_INT_n,                               -- INT_n signal for maskable interrupts.
+            NMI_n            => T80_NMI_n,                               -- NMI_n non maskable interrupt input.
+            BUSRQ_n          => T80_BUSRQ_n,                             -- BUSRQ_n signal to request CPU go into tristate and relinquish bus.
+            M1_n             => T80_M1_n,                                -- M1_n Machine Cycle 1 signal. M1 and MREQ active = opcode fetch, M1 and IORQ active = interrupt, vector can be read from D0-D7.
+            MREQ_n           => T80_MREQ_n,                              -- MREQ_n signal indicates that the address bus holds a valid address for reading or writing memory.
+            IORQ_n           => T80_IORQ_n,                              -- IORQ_n signal indicates that the address bus (A0-A7) holds a valid address for reading or writing and I/O device.
+            RD_n             => T80_RD_n,                                -- RD_n signal indicates that data is ready to be read from a memory or I/O device to the CPU.
+            WR_n             => T80_WR_n,                                -- WR_n signal indicates that data is going to be written from the CPU data bus to a memory or I/O device.
+            RFSH_n           => T80_RFSH_n,                              -- RFSH_n signal to indicate dynamic memory refresh can take place.
+            HALT_n           => T80_HALT_n,                              -- HALT_n signal indicates that the CPU has executed a "HALT" instruction.
+            BUSAK_n          => T80_BUSAK_n,                             -- BUSAK_n signal indicates that the CPU address bus, data bus, and control signals have entered their HI-Z states, and that the external circuitry can now control these lines.
+            A                => T80_A16,                                 -- 16 bit address lines.
+            DI               => T80_DI,                                  -- 8 bit data input bus.
+            DO               => T80_DO                                   -- 8 bit data output bus.
         );
 
     -- MZ80 System RAM
     -- 
     SYSRAM : dpram
         generic map (
-            init_file        => "./mif/combined_mainmemory.mif",
+            init_file        => "./software/mif/combined_mainmemory.mif",
             widthad_a        => 16,
             width_a          => 8,
             widthad_b        => 16,
@@ -611,12 +744,12 @@ begin
             outdata_reg_b    => "UNREGISTERED"
         )
         port map (
-            clock_a          => CLKBUS(CKMEM), 
-            clocken_a        => '1',
-            address_a        => T80_A16,
+            clock_a          => CLKBUS(CKMASTER), --CLKBUS(CKMEM), 
+            clocken_a        => CLKBUS(CKENCPU), --'1',
+            address_a        => MZ_SYSMEM_A16,
             data_a           => T80_DO,
             wren_a           => WENSYSRAM,                               -- Pulse width controlled according to Master Clock.
-            q_a              => DOSYSRAM,
+            q_a              => SYSRAM_DO,
 
             clock_b          => MZ_IOCTL_CLK,
             clocken_b        => '1',
@@ -643,7 +776,7 @@ begin
     --SYSROM : dprom
     SYSROM : dpram
         generic map (
-            init_file        => "./mif/combined_mrom.mif",
+            init_file        => "./software/mif/combined_mrom.mif",
             widthad_a        => 17,
             width_a          => 8,
             widthad_b        => 17,
@@ -652,12 +785,12 @@ begin
             outdata_reg_b    => "UNREGISTERED"
         )
         port map (
-            clock_a          => CLKBUS(CKMEM),
-            clocken_a        => '1',
+            clock_a          => CLKBUS(CKMASTER), -- CLKBUS(CKMEM),
+            clocken_a        => CLKBUS(CKENCPU), --'1',
             address_a        => MROM_BANK & T80_A16(10 downto 0),
             data_a           => T80_DO,
             wren_a           => '0',                                     -- Block writes from Z80 to ROM.
-            q_a              => DOSYSROM,
+            q_a              => SYSROM_DO,
 
             clock_b          => MZ_IOCTL_CLK,
             clocken_b        => '1',
@@ -689,10 +822,123 @@ begin
             CONFIG           => CONFIG,
 
             -- Cassette magnetic tape signals.
-            CMTBUS           => MZ_CMTBUS,
+            CMT_BUS_OUT      => MZ_CMT_BUS_OUT,
+            CMT_BUS_IN       => MZ_CMT_BUS_IN,
+
+            -- MZ80B series can dynamically change the video frequency to attain 40/80 character display.
+            CONFIG_CHAR80    => MZ_DISPLAY_CHAR80,
 
             -- Debug modes.
             DEBUG            => DEBUG
+        );
+
+    VIDEO0 : video
+        port map (
+            RST_n            => T80_RST_n,                               -- Reset
+
+            -- Different operations modes.
+            CONFIG           => CONFIG,
+
+            -- Clocks
+            CLKBUS           => CLKBUS,                                  -- Clock signals created by clkgen module.
+
+            -- CPU Signals
+            T80_A            => T80_A16(13 downto 0),                    -- CPU Address Bus
+            T80_RD_n         => T80_RD_n,                                -- CPU Read Signal
+            T80_WR_n         => T80_WR_n,                                -- CPU Write Signal
+            T80_MREQ_n       => T80_MREQ_n,                              -- CPU Memory Request
+            T80_BUSACK_n     => T80_BUSAK_n,                             -- CPU Bus Acknowledge
+            T80_WAIT_n       => VIDEO_WAIT_n,                            -- Wait Request to CPU from Video circuitry.
+            T80_DI           => T80_DO,                                  -- CPU Data Bus(in)
+            T80_DO           => VRAM_DO,                                 -- CPU Data Bus(out)
+
+            -- Selects.
+            CS_VRAM_n        => MZ_CS_VRAM_n,                            -- VRAM Select
+            CS_MEM_G_n       => MZ_CS_MEM_G_n,                           -- Peripherals Select
+            CS_GRAM_n        => MZ_CS_GRAM_n,                            -- Colour GRAM Select
+            CS_GRAM_80B_n    => MZ_CS_GRAM_80B_n,                        -- MZ80B GRAM Select
+            CS_IO_GFB_n      => MZ_CS_IO_GFB_n,                          -- Graphics FB IO Select range
+            CS_IO_G_n        => MZ_CS_IO_G_n,                            -- Graphics Options IO Select range
+
+            -- Video Signals
+            VGATE_n          => MZ_VGATE_n,                              -- Video Output Control
+            INVERSE_n        => MZ_DISPLAY_INVERT_n,                     -- Invert video output.
+            CONFIG_CHAR80    => MZ_DISPLAY_CHAR80,                       -- 40 Char = 0, 80 Char = 1 select.
+            HBLANK           => MZ_HBLANK,                               -- Horizontal Blanking
+            VBLANK           => MZ_VBLANK,                               -- Vertical Blanking
+            HSYNC_n          => MZ_HSYNC_n,                              -- Horizontal Sync
+            VSYNC_n          => MZ_VSYNC_n,                              -- Vertical Sync
+            ROUT             => MZ_R,                                    -- Red Output
+            GOUT             => MZ_G,                                    -- Green Output
+            BOUT             => MZ_B,                                    -- Blue Output
+
+            -- HPS Interface
+            IOCTL_DOWNLOAD   => MZ_IOCTL_DOWNLOAD,
+            IOCTL_UPLOAD     => MZ_IOCTL_UPLOAD,
+            IOCTL_CLK        => MZ_IOCTL_CLK,                            -- HPS I/O Clock.
+            IOCTL_WR         => MZ_IOCTL_WR,                             -- HPS Write Enable to FPGA.
+            IOCTL_RD         => MZ_IOCTL_RD,                             -- HPS Read Enable to FPGA.
+            IOCTL_ADDR       => MZ_IOCTL_ADDR,                           -- HPS Address in FPGA to write into.
+            IOCTL_DOUT       => MZ_IOCTL_DOUT,                           -- HPS Data to be written into FPGA.
+            IOCTL_DIN        => MZ_IOCTL_DIN_VIDEO                       -- HPS Data to be sent to HPS.
+        );
+
+    TAPE0 : cmt
+        port map (
+            RST              => MZ_SYSTEM_RESET,
+
+            -- Clock signals needed by this module.
+            CLKBUS           => CLKBUS,
+
+            -- Different operations modes.
+            CONFIG           => CONFIG,
+
+            -- Cassette magnetic tape signals.
+            CMT_BUS_OUT      => MZ_CMT_BUS_OUT,                          -- Output is fed from CMT into MCTRL and MZ..
+            CMT_BUS_IN       => MZ_CMT_BUS_IN,                           -- Input is fed from MCTRL/MZ into CMT.
+
+            -- HPS Interface
+            IOCTL_DOWNLOAD   => MZ_IOCTL_DOWNLOAD,                       -- HPS Downloading to FPGA.
+            IOCTL_UPLOAD     => MZ_IOCTL_UPLOAD,                         -- HPS Uploading from FPGA.
+            IOCTL_CLK        => MZ_IOCTL_CLK,                            -- HPS I/O Clock.
+            IOCTL_WR         => MZ_IOCTL_WR,                             -- HPS Write Enable to FPGA.
+            IOCTL_RD         => MZ_IOCTL_RD,                             -- HPS Read Enable from FPGA.
+            IOCTL_ADDR       => MZ_IOCTL_ADDR,                           -- HPS Address in FPGA to write into.
+            IOCTL_DOUT       => MZ_IOCTL_DOUT,                           -- HPS Data to be written into FPGA.
+            IOCTL_DIN        => MZ_IOCTL_DIN_CMT,                        -- HPS Data to be sent to HPS.
+
+            -- Debug Status Leds
+            DEBUG_STATUS_LEDS=> MZ_CMT_DEBUG_LEDS(31 downto 0)           -- 24 leds to display cmt internal status.
+        );
+
+    KEYS : keymatrix
+        port map (
+            RST_n            => T80_RST_n,
+
+            -- i8255
+            PA               => MZ_KEYB_SCAN,
+            PB               => MZ_KEYB_DATA,
+            STALL            => MZ_KEYB_STALL,
+            BREAKDETECT      => MZ_KEYB_BREAKDETECT,
+
+            -- PS/2 Keyboard Data
+            PS2_KEY          => MZ_PS2_KEY,                              -- PS2 Key data.
+
+            -- Different operations modes.
+            CONFIG           => CONFIG,
+
+            -- Clock signals created by this module.
+            CLKBUS           => CLKBUS,
+
+            -- HPS Interface
+            IOCTL_DOWNLOAD   => MZ_IOCTL_DOWNLOAD,                       -- HPS Downloading to FPGA.
+            IOCTL_UPLOAD     => MZ_IOCTL_UPLOAD,                         -- HPS Uploading from FPGA.
+            IOCTL_CLK        => MZ_IOCTL_CLK,                            -- HPS I/O Clock.
+            IOCTL_WR         => MZ_IOCTL_WR,                             -- HPS Write Enable to FPGA.
+            IOCTL_RD         => MZ_IOCTL_RD,                             -- HPS Read Enable from FPGA.
+            IOCTL_ADDR       => MZ_IOCTL_ADDR,                           -- HPS Address in FPGA to write into.
+            IOCTL_DOUT       => MZ_IOCTL_DOUT,                           -- HPS Data to be written into FPGA.
+            IOCTL_DIN        => MZ_IOCTL_DIN_KEY                         -- HPS Data to be sent to HPS.
         );
 
     MZ80HW : mz80c
@@ -701,53 +947,55 @@ begin
             CLKBUS           => CLKBUS,                                  -- Clock signals created by this module.
 
             -- Resets.
+            COLD_RESET       => cold_reset,                              -- Cold reset, one time reset on power up.
             SYSTEM_RESET     => MZ_SYSTEM_RESET,                         -- Reset generated by system based on Cold/Warm or trigger.
 
             -- Z80 CPU
-            T80_RST_n        => MZ80C_RST_n,
-            T80_CLK          => MZ80C_CLK,
-            T80_CLKEN        => MZ80C_CLKEN,
+            T80_RST_n        => T80_RST_n,
             T80_WAIT_n       => MZ80C_WAIT_n,
             T80_INT_n        => MZ80C_INT_n,
             T80_NMI_n        => MZ80C_NMI_n,
             T80_BUSRQ_n      => MZ80C_BUSRQ_n,
-            T80_M1_n         => MZ80C_M1_n,
-            T80_MREQ_n       => MZ80C_MREQ_n,
-            T80_IORQ_n       => MZ80C_IORQ_n,
-            T80_RD_n         => MZ80C_RD_n,
-            T80_WR_n         => MZ80C_WR_n,
-            T80_RFSH_n       => MZ80C_RFSH_n,                            --RFSH_n
-            T80_HALT_n       => MZ80C_HALT_n,
-            T80_BUSAK_n      => MZ80C_BUSAK_n,
-            T80_A16          => MZ80C_A16,
+            T80_M1_n         => T80_M1_n,
+            T80_MREQ_n       => T80_MREQ_n,
+            T80_IORQ_n       => T80_IORQ_n,
+            T80_RD_n         => T80_RD_n,
+            T80_WR_n         => T80_WR_n,
+            T80_RFSH_n       => T80_RFSH_n,                              --RFSH_n
+            T80_HALT_n       => T80_HALT_n,
+            T80_BUSAK_n      => T80_BUSAK_n,
+            T80_A16          => T80_A16,
             T80_DI           => MZ80C_DI,
-            T80_DO           => MZ80C_DO,
+            T80_DO           => T80_DO,
 
             -- Chip selects to common resources.
             CS_ROM_n         => MZ80C_CS_ROM_n,
             CS_RAM_n         => MZ80C_CS_RAM_n,
+            CS_VRAM_n        => MZ80C_CS_VRAM_n,                         -- VRAM Select
+            CS_MEM_G_n       => MZ80C_CS_MEM_G_n,                        -- Memory mapped Peripherals Select
+            CS_GRAM_n        => MZ80C_CS_GRAM_n,                         -- Colour GRAM Select
+            CS_IO_GFB_n      => MZ80C_CS_IO_GFB_n,                       -- Graphics FB IO Select range
 
             -- Audio.
             AUDIO_L          => MZ80C_AUDIO_L,
             AUDIO_R          => MZ80C_AUDIO_R,
 
-            -- Video signals.
-            R                => MZ80C_R,
-            G                => MZ80C_G,
-            B                => MZ80C_B,
-            HSYNC_n          => MZ80C_HSYNC_n,
-            VSYNC_n          => MZ80C_VSYNC_n,
-            HBLANK           => MZ80C_HBLANK,
-            VBLANK           => MZ80C_VBLANK,
-
             -- Different operations modes.
             CONFIG           => CONFIG,
 
-            -- CMT status signals.
-            CMTBUS           => MZ80C_CMTBUS,
+            -- Keyboard.
+            KEYB_SCAN        => MZ80C_KEYB_SCAN,                         -- Keyboard scan lines out.
+            KEYB_DATA        => MZ_KEYB_DATA,                            -- Keyboard scan data in.
+            KEYB_STALL       => MZ80C_KEYB_STALL,                        -- Keyboard Stall out.
 
-            -- I/O                                                       -- I/O down to the core.
-            PS2_KEY          => MZ_PS2_KEY,
+            -- CMT status signals.
+            CMT_BUS_OUT      => MZ_CMT_BUS_OUT,
+            CMT_BUS_IN       => MZ80C_CMT_BUS_IN,
+
+            -- Video signals.
+            VGATE_n          => MZ80C_VGATE_n,
+            HBLANK           => MZ_HBLANK,
+            VBLANK           => MZ_VBLANK,
 
             -- HPS Interface
             IOCTL_DOWNLOAD   => MZ_IOCTL_DOWNLOAD,                    
@@ -769,53 +1017,60 @@ begin
             CLKBUS           => CLKBUS,                                  -- Clock signals created by this module.
 
             -- Resets.
+            COLD_RESET       => cold_reset,                              -- Cold reset, one time reset on power up.
             SYSTEM_RESET     => MZ_SYSTEM_RESET,                         -- Reset generated by system based on Cold/Warm or trigger.
 
             -- Z80 CPU
-            T80_RST_n        => MZ80B_RST_n,
-            T80_CLK          => MZ80B_CLK,
-            T80_CLKEN        => MZ80B_CLKEN,
+            T80_RST_n        => T80_RST_n,
             T80_WAIT_n       => MZ80B_WAIT_n,
             T80_INT_n        => MZ80B_INT_n,
             T80_NMI_n        => MZ80B_NMI_n,
             T80_BUSRQ_n      => MZ80B_BUSRQ_n,
-            T80_M1_n         => MZ80B_M1_n,
-            T80_MREQ_n       => MZ80B_MREQ_n,
-            T80_IORQ_n       => MZ80B_IORQ_n,
-            T80_RD_n         => MZ80B_RD_n,
-            T80_WR_n         => MZ80B_WR_n,
-            T80_RFSH_n       => MZ80B_RFSH_n,                            --RFSH_n
-            T80_HALT_n       => MZ80B_HALT_n,
-            T80_BUSAK_n      => MZ80B_BUSAK_n,
-            T80_A16          => MZ80B_A16,
+            T80_M1_n         => T80_M1_n,
+            T80_MREQ_n       => T80_MREQ_n,
+            T80_IORQ_n       => T80_IORQ_n,
+            T80_RD_n         => T80_RD_n,
+            T80_WR_n         => T80_WR_n,
+            T80_RFSH_n       => T80_RFSH_n,                              --RFSH_n
+            T80_HALT_n       => T80_HALT_n,
+            T80_BUSAK_n      => T80_BUSAK_n,
+            T80_A16          => T80_A16,
             T80_DI           => MZ80B_DI,
-            T80_DO           => MZ80B_DO,
+            T80_DO           => T80_DO,
 
             -- Chip selects to common resources.
             CS_ROM_n         => MZ80B_CS_ROM_n,
             CS_RAM_n         => MZ80B_CS_RAM_n,
+            CS_VRAM_n        => MZ80B_CS_VRAM_n,                         -- VRAM Select
+            CS_GRAM_n        => MZ80B_CS_GRAM_n,                         -- Colour GRAM Select
+            CS_GRAM_80B_n    => MZ_CS_GRAM_80B_n,                        -- MZ80B GRAM Select
+            CS_IO_GFB_n      => MZ80B_CS_IO_GFB_n,                       -- Graphics FB IO Select range
+            CS_IO_G_n        => MZ80B_CS_IO_G_n,                         -- Graphics Options IO Select range
+            CS_SWP_MEMBANK_n => MZ_SWP_MEM_BANK_n,                       -- Swap lower 32K memory bank into upper 32k block.
 
             -- Audio.
             AUDIO_L          => MZ80B_AUDIO_L,
             AUDIO_R          => MZ80B_AUDIO_R,
 
-            -- Video signals.
-            R                => MZ80B_R,
-            G                => MZ80B_G,
-            B                => MZ80B_B,
-            HSYNC_n          => MZ80B_HSYNC_n,
-            VSYNC_n          => MZ80B_VSYNC_n,
-            HBLANK           => MZ80B_HBLANK,
-            VBLANK           => MZ80B_VBLANK,
-
             -- Different operations modes.
             CONFIG           => CONFIG,
 
-            -- CMT status signals.
-            CMTBUS           => MZ80B_CMTBUS,
+            -- Keyboard.
+            KEYB_SCAN        => MZ80B_KEYB_SCAN,                         -- Keyboard scan lines out.
+            KEYB_DATA        => MZ_KEYB_DATA,                            -- Keyboard scan data in.
+            KEYB_STALL       => MZ80B_KEYB_STALL,                        -- Keyboard Stall out.
+            KEYB_BREAKDETECT => MZ_KEYB_BREAKDETECT,                     -- Keyboard detects a break.
 
-            -- I/O                                                       -- I/O down to the core.
-            PS2_KEY          => MZ_PS2_KEY,
+            -- CMT status signals.
+            CMT_BUS_OUT      => MZ_CMT_BUS_OUT,
+            CMT_BUS_IN       => MZ80B_CMT_BUS_IN,
+
+            -- Video signals.
+            VGATE_n          => MZ80B_VGATE_n,
+            INVERSE_n        => MZ_DISPLAY_INVERT_n,                     -- Invert video output.
+            CONFIG_CHAR80    => MZ_DISPLAY_CHAR80,                       -- 40 Char = 0, 80 Char = 1 select.
+            HBLANK           => MZ_HBLANK,
+            VBLANK           => MZ_VBLANK,
 
             -- HPS Interface
             IOCTL_DOWNLOAD   => MZ_IOCTL_DOWNLOAD,                    
@@ -833,72 +1088,52 @@ begin
 
     -- Clocks.
     --
-    --clksys                   <= CLKBUS(CKMEM);                           -- System clock.
-    clksys                   <= CLKBUS(CKHPS);                           -- HPS clock.
-    clkvid                   <= CLKBUS(CKVIDEO);                         -- Video pixel clock output.
+    CLKSYS                   <= CLKBUS(CKMASTER);                       -- HPS clock.
+    CLKVID                   <= CLKBUS(CKVIDEO);                        -- Video pixel clock output.
+    CLKIOP                   <= CLKBUS(CKIOP);                          -- IO Processor Clock.
 
     -- Multiplexer -> Signals to enabled hardware.
     --
-    MZ80C_RST_n              <= T80_RST_n         when CONFIG(MZ_80C) = '1'   else '1';    -- If not selected, hold in reset.
-    MZ80B_RST_n              <= T80_RST_n         when CONFIG(MZ_80B) = '1'   else '1';
-    MZ80C_CLK                <= CLKBUS(CKCPU)     when CONFIG(MZ_80C) = '1'   else '1';
-    MZ80B_CLK                <= CLKBUS(CKCPU)     when CONFIG(MZ_80B) = '1'   else '1';
-    T80_CLKEN                <= MZ80C_CLKEN       when CONFIG(MZ_80C) = '1'   else MZ80B_CLKEN;
-    T80_WAIT_n               <= MZ80C_WAIT_n      when CONFIG(MZ_80C) = '1'   else MZ80B_WAIT_n;
+    T80_WAIT_n               <= VIDEO_WAIT_n      when VIDEO_WAIT_n = '0'     else MZ80C_WAIT_n      when CONFIG(MZ_80C) = '1'   else MZ80B_WAIT_n;
     T80_INT_n                <= MZ80C_INT_n       when CONFIG(MZ_80C) = '1'   else MZ80B_INT_n;
     T80_NMI_n                <= MZ80C_NMI_n       when CONFIG(MZ_80C) = '1'   else MZ80B_NMI_n;
-    T80_BUSRQ_n              <= MZ80C_BUSRQ_n     when CONFIG(MZ_80C) = '1'   else '1';
-    MZ80C_M1_n               <= T80_M1_n          when CONFIG(MZ_80C) = '1'   else '1';
-    MZ80B_M1_n               <= T80_M1_n          when CONFIG(MZ_80B) = '1'   else '1';
-    MZ80C_MREQ_n             <= T80_MREQ_n        when CONFIG(MZ_80C) = '1'   else '1';
-    MZ80B_MREQ_n             <= T80_MREQ_n        when CONFIG(MZ_80B) = '1'   else '1';
-    MZ80C_IORQ_n             <= T80_IORQ_n        when CONFIG(MZ_80C) = '1'   else '1';
-    MZ80B_IORQ_n             <= T80_IORQ_n        when CONFIG(MZ_80B) = '1'   else '1';
-    MZ80C_RD_n               <= T80_RD_n          when CONFIG(MZ_80C) = '1'   else '1';
-    MZ80B_RD_n               <= T80_RD_n          when CONFIG(MZ_80B) = '1'   else '1';
-    MZ80C_WR_n               <= T80_WR_n          when CONFIG(MZ_80C) = '1'   else '1';
-    MZ80B_WR_n               <= T80_WR_n          when CONFIG(MZ_80B) = '1'   else '1';
-    MZ80C_RFSH_n             <= T80_RFSH_n        when CONFIG(MZ_80C) = '1'   else '1';
-    MZ80B_RFSH_n             <= T80_RFSH_n        when CONFIG(MZ_80B) = '1'   else '1';
-    MZ80C_HALT_n             <= T80_HALT_n        when CONFIG(MZ_80C) = '1'   else '1';
-    MZ80B_HALT_n             <= T80_HALT_n        when CONFIG(MZ_80B) = '1'   else '1';
-    MZ80C_BUSAK_n            <= T80_BUSAK_n       when CONFIG(MZ_80C) = '1'   else '1';
-    MZ80B_BUSAK_n            <= T80_BUSAK_n       when CONFIG(MZ_80B) = '1'   else '1';
-    MZ80C_A16                <= T80_A16           when CONFIG(MZ_80C) = '1'   else (others=>'1');
-    MZ80B_A16                <= T80_A16           when CONFIG(MZ_80B) = '1'   else (others=>'1');
-    MZ_CMTBUS                <= MZ80C_CMTBUS      when CONFIG(MZ_80C) = '1'   else MZ80B_CMTBUS;
-    T80_DI                   <= DOSYSRAM  when CS_RAM_n ='0' and T80_RD_n = '0'                  -- Read from System RAM
+    T80_BUSRQ_n              <= MZ80C_BUSRQ_n     when CONFIG(MZ_80C) = '1'   else MZ80B_BUSRQ_n;
+    T80_DI                   <= SYSRAM_DO         when MZ_CS_RAM_n ='0' and T80_RD_n = '0'                    -- Read from System RAM
                                 else 
-                                DOSYSROM  when CS_ROM_n ='0' and T80_RD_n = '0'                  -- Read from System ROM        
+                                SYSROM_DO         when MZ_CS_ROM_n ='0' and T80_RD_n = '0'                    -- Read from System ROM        
                                 else 
-                                MZ80C_DI  when CONFIG(MZ_80C) = '1'  
+                                VRAM_DO           when (MZ_CS_VRAM_n ='0' or MZ_CS_GRAM_n = '0' or MZ_CS_GRAM_80B_n = '0') and T80_RD_n = '0' -- Read from Graphics/Video RAM.
+                                else 
+                                MZ80C_DI          when CONFIG(MZ_80C) = '1'  
                                 else
-                                MZ80B_DI  when CONFIG(MZ_80B) = '1'
+                                MZ80B_DI          when CONFIG(MZ_80B) = '1'
                                 else
-                                (others=>'1');                                                  -- Float the bus as high when not driven.
-    MZ80C_DO                 <= T80_DO            when CONFIG(MZ_80C) = '1'   else (others=>'1');
-    MZ80B_DO                 <= T80_DO            when CONFIG(MZ_80B) = '1'   else (others=>'1');
-    CS_ROM_n                 <= MZ80C_CS_ROM_n    when CONFIG(MZ_80C) = '1'   else MZ80B_CS_ROM_n;
-    CS_RAM_n                 <= MZ80C_CS_RAM_n    when CONFIG(MZ_80C) = '1'   else MZ80B_CS_RAM_n;
+                                (others=>'1');                                                                -- Float the bus as high when not driven.
+    MZ_SYSMEM_A16            <= T80_A16           when CONFIG(MZ_80C) = '1'   else T80_A16           when CONFIG(MZ_80B) = '1' and MZ_SWP_MEM_BANK_n = '1' else '0' & T80_A16(14 downto 0);
+    MZ_CS_ROM_n              <= MZ80C_CS_ROM_n    when CONFIG(MZ_80C) = '1'   else MZ80B_CS_ROM_n;
+    MZ_CS_RAM_n              <= MZ80C_CS_RAM_n    when CONFIG(MZ_80C) = '1'   else MZ80B_CS_RAM_n;
+    MZ_CS_VRAM_n             <= MZ80C_CS_VRAM_n   when CONFIG(MZ_80C) = '1'   else MZ80B_CS_VRAM_n;
+    MZ_CS_MEM_G_n            <= MZ80C_CS_MEM_G_n  when CONFIG(MZ_80C) = '1'   else '1';
+    MZ_CS_GRAM_n             <= MZ80C_CS_GRAM_n   when CONFIG(MZ_80C) = '1'   else MZ80B_CS_GRAM_n;
+    MZ_CS_IO_GFB_n           <= MZ80C_CS_IO_GFB_n when CONFIG(MZ_80C) = '1'   else MZ80B_CS_IO_GFB_n;
+    MZ_CS_IO_G_n             <= '1'               when CONFIG(MZ_80C) = '1'   else MZ80B_CS_IO_G_n;
     audio_l_o                <= MZ80C_AUDIO_L     when CONFIG(MZ_80C) = '1'   else MZ80B_AUDIO_L;
     audio_r_o                <= MZ80C_AUDIO_R     when CONFIG(MZ_80C) = '1'   else MZ80B_AUDIO_R;
-    MZ_R                     <= MZ80C_R           when CONFIG(MZ_80C) = '1'   else MZ80B_R;
-    MZ_G                     <= MZ80C_G           when CONFIG(MZ_80C) = '1'   else MZ80B_G;
-    MZ_B                     <= MZ80C_B           when CONFIG(MZ_80C) = '1'   else MZ80B_B;
-    MZ_HSYNC_n               <= MZ80C_HSYNC_n     when CONFIG(MZ_80C) = '1'   else MZ80B_HSYNC_n;
-    MZ_VSYNC_n               <= MZ80C_VSYNC_n     when CONFIG(MZ_80C) = '1'   else MZ80B_VSYNC_n;
-    MZ_HBLANK                <= MZ80C_HBLANK      when CONFIG(MZ_80C) = '1'   else MZ80B_HBLANK;
-    MZ_VBLANK                <= MZ80C_VBLANK      when CONFIG(MZ_80C) = '1'   else MZ80B_VBLANK;
+    MZ_VGATE_n               <= MZ80C_VGATE_n     when CONFIG(MZ_80C) = '1'   else MZ80B_VGATE_n;
+    MZ_CMT_BUS_IN            <= MZ80C_CMT_BUS_IN  when CONFIG(MZ_80C) = '1'   else MZ80B_CMT_BUS_IN;
 
-    -- VGA can be output in original format or via the Scan converter to increase line width.
+    MZ_KEYB_SCAN             <= MZ80C_KEYB_SCAN   when CONFIG(MZ_80C) = '1'   else MZ80B_KEYB_SCAN;
+    MZ_KEYB_STALL            <= MZ80C_KEYB_STALL  when CONFIG(MZ_80C) = '1'   else MZ80B_KEYB_STALL;
+
+    -- VGA output in original format or upscaled.
     --
-    vga_hs_o                 <= not MZ_HSYNC_n;
-    vga_vs_o                 <= not MZ_VSYNC_n;
-    vga_r_o                  <= ('0', '0', MZ_R, MZ_R, MZ_R, MZ_R, MZ_R, MZ_R);
-    vga_g_o                  <= ('0', '0', MZ_G, MZ_G, MZ_G, MZ_G, MZ_G, MZ_G);
-    vga_b_o                  <= ('0', '0', MZ_B, MZ_B, MZ_B, MZ_B, MZ_B, MZ_B);
-    vga_vb_o                 <= MZ_VBLANK;
-    vga_hb_o                 <= MZ_HBLANK;
+    VGA_HS_O                 <= not MZ_HSYNC_n;
+    VGA_VS_O                 <= not MZ_VSYNC_n;
+    VGA_R_O                  <= MZ_R;
+    VGA_G_O                  <= MZ_G;
+    VGA_B_O                  <= MZ_B;
+    VGA_VB_O                 <= MZ_VBLANK;
+    VGA_HB_O                 <= MZ_HBLANK;
 
     -- Parent signals onto local wires.
     --
@@ -910,35 +1145,43 @@ begin
     MZ_IOCTL_RD              <= ioctl_rd;
     MZ_IOCTL_ADDR            <= ioctl_addr;
     MZ_IOCTL_DOUT            <= ioctl_dout;
-    ioctl_din                <= X"00" & MZ_IOCTL_DIN_SYSROM when MZ_IOCTL_RENROM = '1'
+    IOCTL_DIN                <= X"000000" & MZ_IOCTL_DIN_SYSROM when MZ_IOCTL_RENROM = '1'                               -- System ROM
                                 else
-                                X"00" & MZ_IOCTL_DIN_SYSRAM when MZ_IOCTL_RENRAM = '1'
+                                X"000000" & MZ_IOCTL_DIN_SYSRAM when MZ_IOCTL_RENRAM = '1'                               -- System RAM
                                 else
-                                MZ_IOCTL_DIN_MCTRL          when IOCTL_ADDR(24 downto 4) = "100000000000000000000"
+                                MZ_IOCTL_DIN_VIDEO          when IOCTL_ADDR(24 downto 20) = "00011"                  -- Video RAM
                                 else
-                                MZ_IOCTL_DIN_MZ80C          when CONFIG(MZ_80C) = '1'
+                                MZ_IOCTL_DIN_VIDEO          when IOCTL_ADDR(24 downto 20) = "00110"                  -- PCG
                                 else
-                                MZ_IOCTL_DIN_MZ80B          when CONFIG(MZ_80B) = '1'
+                                MZ_IOCTL_DIN_VIDEO          when IOCTL_ADDR(24 downto 20) = "00101"                  -- CGROM
+                                else
+                                MZ_IOCTL_DIN_MCTRL          when IOCTL_ADDR(24)           = '1'                      -- MCTRL Registers
+                                else
+                                MZ_IOCTL_DIN_CMT            when IOCTL_ADDR(24 downto 20) = "00100"                  -- CMT
+                                else                               
+                                MZ_IOCTL_DIN_KEY            when IOCTL_ADDR(24 downto 20) = "00010"                  -- Key Matrix
+                                else
+                                MZ_IOCTL_DIN_MZ80C          when CONFIG(MZ_80C) = '1'                                -- MZ80C memory.
+                                else
+                                MZ_IOCTL_DIN_MZ80B          when CONFIG(MZ_80B) = '1'                                -- MZ80B memory.
                                 else
                                 (others=>'0');
 
     --
     -- Control Signals
     --
-    T80_MRD_n                <= T80_MREQ_n or T80_RD_n;
-    T80_MWR_n                <= T80_MREQ_n or T80_WR_n;
     T80_RST_n                <= not MZ_SYSTEM_RESET;
     --
     MZ_MEMWR                 <= not T80_WR_n;
-    WENSYSRAM                <= MZ_MEMWR when CS_RAM_n = '0'                                             -- Write enable to System RAM
+    WENSYSRAM                <= MZ_MEMWR when MZ_CS_RAM_n = '0'                                          -- Write enable to System RAM
                                 else '0';
-    MZ_IOCTL_WENROM          <= '1'   when MZ_IOCTL_ADDR(24 downto 17)="00000000"  and MZ_IOCTL_WR = '1' -- Write enable from HPS to ROM.
+    MZ_IOCTL_WENROM          <= '1'   when MZ_IOCTL_ADDR(24 downto 20) = "00000" and MZ_IOCTL_WR = '1'   -- Write enable from HPS to ROM.
                                 else '0';
-    MZ_IOCTL_WENRAM          <= '1'   when MZ_IOCTL_ADDR(24 downto 16)="000000010" and MZ_IOCTL_WR = '1' -- Write enable from HPS to RAM.
+    MZ_IOCTL_WENRAM          <= '1'   when MZ_IOCTL_ADDR(24 downto 20) = "00001" and MZ_IOCTL_WR = '1'   -- Write enable from HPS to RAM.
                                 else '0';
-    MZ_IOCTL_RENROM          <= '1'   when MZ_IOCTL_ADDR(24 downto 17)="00000000"  and MZ_IOCTL_RD = '1' -- Read enable from ROM to HPS.
+    MZ_IOCTL_RENROM          <= '1'   when MZ_IOCTL_ADDR(24 downto 20) = "00000" and MZ_IOCTL_RD = '1'   -- Read enable from ROM to HPS.
                                 else '0';
-    MZ_IOCTL_RENRAM          <= '1'   when MZ_IOCTL_ADDR(24 downto 16)="000000010" and MZ_IOCTL_RD = '1' -- Read enable from RAM to HPS.
+    MZ_IOCTL_RENRAM          <= '1'   when MZ_IOCTL_ADDR(24 downto 20) = "00001" and MZ_IOCTL_RD = '1'   -- Read enable from RAM to HPS.
                                 else '0';
 
     -- System ROM. 128K split up into chunks which are enabled according to the running machine. The ROM can be accessed by the
@@ -1083,300 +1326,311 @@ begin
 
     -- Debug: Every 5 seconds, change the mb led bank to show a set of values (0 -> 7), bank indicated by 1 second of a bank number.
     --
-    --process( cold_reset, CLKBUS(CKLEDS), DEBUG) begin
-    process( MZ_SYSTEM_RESET, CLKBUS(CKLEDS), DEBUG) begin
-        if MZ_SYSTEM_RESET = '1'  then
-            debug_counter <= 0;
-            flip_counter  <= 0;
-
-        elsif rising_edge(CLKBUS(CKLEDS)) then
-
-            -- If debug mode is enabled, enable use of sequencer.
-            --
-            if DEBUG(ENABLED) = '1' then
-
-                -- If LEDS are switched on, run the sample sequencer.
-                --
-                if DEBUG(LEDS_ON) = '1' then
+    DEBUG0: if DEBUG_ENABLE = 1 generate
+        process( MZ_SYSTEM_RESET, CLKBUS(CKMASTER), DEBUG) begin
+            if MZ_SYSTEM_RESET = '1'  then
+                debug_counter <= 0;
+                flip_counter  <= 0;
     
-                    -- The changing of the values displayed depends on the sample frequency as this drives the process.
-                    case DEBUG(SMPFREQ) is
-                        when "0000" =>  -- CMT/CPU frequency - default to 1s/5s @ 2MHz.
-                            block_flip <= 250000;
-                            bank_flip  <= 10000000;
-                        when "0001" =>  -- 1MHz
-                            block_flip <= 800000;
-                            bank_flip  <= 5000000;
-                        when "0010" =>  -- 100KHz
-                            block_flip <= 80000;
-                            bank_flip  <= 500000;
-                        when "0011" =>  -- 10KHz
-                            block_flip <= 8000;
-                            bank_flip  <= 50000;
-                        when "0100" =>  -- 5KHz
-                            block_flip <= 4000;
-                            bank_flip  <= 25000;
-                        when "0101" =>  -- 1KHz
-                            block_flip <= 800;
-                            bank_flip  <= 5000;
-                        when "0110" =>  -- 500Hz
-                            block_flip <= 400;
-                            bank_flip  <= 2500;
-                        when "0111" =>  -- 100Hz
-                            block_flip <= 80;
-                            bank_flip  <= 500;
-                        when "1000" =>  -- 50Hz
-                            block_flip <= 40;
-                            bank_flip  <= 250;
-                        when "1001" =>  -- 10Hz
-                            block_flip <= 8;
-                            bank_flip  <= 50;
-                        when "1010" =>  -- 5Hz
-                            block_flip <= 4;
-                            bank_flip  <= 25;
-                        when "1011" =>  -- 2Hz
-                            block_flip <= 1;
-                            bank_flip  <= 10;
-                        when "1100" =>  -- 1Hz
-                            block_flip <= 1;
-                            bank_flip  <= 5;
-                        when "1101" =>  -- 0.5Hz
-                            block_flip <= 1;
-                            bank_flip  <= 5;
-                        when "1110" =>  -- 0.2Hz
-                            block_flip <= 1;
-                            bank_flip  <= 2;
-                        when "1111" =>  -- 0.1Hz
-                            block_flip <= 1;
-                            bank_flip  <= 1;
-                    end case;
+            elsif rising_edge(CLKBUS(CKMASTER)) then
+
+                if CLKBUS(CKENLEDS) = '1' then
         
-                    -- If a subbank has been provided, we dont cycle through the blocks in the bank,
-                    -- just fix on the given subbank.
+                    -- If debug mode is enabled, enable use of sequencer.
                     --
-                    case DEBUG(LEDS_SUBBANK) is
-                        when "001" => debug_counter <= 1;
-                        when "010" => debug_counter <= 3;
-                        when "011" => debug_counter <= 5;
-                        when "100" => debug_counter <= 7;
-                        when "101" => debug_counter <= 9;
-                        when "110" => debug_counter <= 11;
-                        when "111" => debug_counter <= 13;
-                        when "000" =>
-                            flip_counter <= flip_counter + 1;
-                            if(flip_counter = block_flip-1 and (debug_counter mod 2) = 0) then
-                                flip_counter <= 0;
-                                debug_counter <= debug_counter + 1;
-                            elsif(flip_counter = bank_flip-1) then
-                                flip_counter <= 0;
-                                debug_counter <= debug_counter + 1;
+                    if DEBUG(ENABLED) = '1' then
+        
+                        -- If LEDS are switched on, run the sample sequencer.
+                        --
+                        if DEBUG(LEDS_ON) = '1' then
+            
+                            -- The changing of the values displayed depends on the sample frequency as this drives the process.
+                            case DEBUG(SMPFREQ) is
+                                when "0000" =>  -- CMT/CPU frequency - default to 1s/5s @ 2MHz.
+                                    block_flip <= 250000;
+                                    bank_flip  <= 10000000;
+                                when "0001" =>  -- 1MHz
+                                    block_flip <= 800000;
+                                    bank_flip  <= 5000000;
+                                when "0010" =>  -- 100KHz
+                                    block_flip <= 80000;
+                                    bank_flip  <= 500000;
+                                when "0011" =>  -- 10KHz
+                                    block_flip <= 8000;
+                                    bank_flip  <= 50000;
+                                when "0100" =>  -- 5KHz
+                                    block_flip <= 4000;
+                                    bank_flip  <= 25000;
+                                when "0101" =>  -- 1KHz
+                                    block_flip <= 800;
+                                    bank_flip  <= 5000;
+                                when "0110" =>  -- 500Hz
+                                    block_flip <= 400;
+                                    bank_flip  <= 2500;
+                                when "0111" =>  -- 100Hz
+                                    block_flip <= 80;
+                                    bank_flip  <= 500;
+                                when "1000" =>  -- 50Hz
+                                    block_flip <= 40;
+                                    bank_flip  <= 250;
+                                when "1001" =>  -- 10Hz
+                                    block_flip <= 8;
+                                    bank_flip  <= 50;
+                                when "1010" =>  -- 5Hz
+                                    block_flip <= 4;
+                                    bank_flip  <= 25;
+                                when "1011" =>  -- 2Hz
+                                    block_flip <= 1;
+                                    bank_flip  <= 10;
+                                when "1100" =>  -- 1Hz
+                                    block_flip <= 1;
+                                    bank_flip  <= 5;
+                                when "1101" =>  -- 0.5Hz
+                                    block_flip <= 1;
+                                    bank_flip  <= 5;
+                                when "1110" =>  -- 0.2Hz
+                                    block_flip <= 1;
+                                    bank_flip  <= 2;
+                                when "1111" =>  -- 0.1Hz
+                                    block_flip <= 1;
+                                    bank_flip  <= 1;
+                            end case;
+                
+                            -- If a subbank has been provided, we dont cycle through the blocks in the bank,
+                            -- just fix on the given subbank.
+                            --
+                            case DEBUG(LEDS_SUBBANK) is
+                                when "001" => debug_counter <= 1;
+                                when "010" => debug_counter <= 3;
+                                when "011" => debug_counter <= 5;
+                                when "100" => debug_counter <= 7;
+                                when "101" => debug_counter <= 9;
+                                when "110" => debug_counter <= 11;
+                                when "111" => debug_counter <= 13;
+                                when "000" =>
+                                    flip_counter <= flip_counter + 1;
+                                    if(flip_counter = block_flip-1 and (debug_counter mod 2) = 0) then
+                                        flip_counter <= 0;
+                                        debug_counter <= debug_counter + 1;
+                                    elsif(flip_counter = bank_flip-1) then
+                                        flip_counter <= 0;
+                                        debug_counter <= debug_counter + 1;
+                                    end if;
+                            end case;
+                
+                            -- Bank 0 : T80 Signals
+                            if( DEBUG(LEDS_BANK) = "000") then
+                                case debug_counter is
+                                    when 0 => main_leds(7 downto 0) <= "00010000";                     
+                                    when 1 => main_leds(7 downto 0) <= T80_A16(7 downto 0);            -- Address Bus A0->A7
+                                    when 2 => main_leds(7 downto 0) <= "00010001";                     
+                                    when 3 => main_leds(7 downto 0) <= T80_A16(15 downto 8);           -- Address Bus A8->A15
+                                    when 4 => main_leds(7 downto 0) <= "00010010";                     
+                                    when 5 => main_leds(7 downto 0) <= T80_DI(7 downto 0);             -- Data Bus D0->D7
+                                    when 6 => main_leds(7 downto 0) <= "00010011";                     
+                                    when 7 => main_leds(0)          <= T80_RST_n;                      -- T80 signals
+                                              main_leds(1)          <= T80_WAIT_n;
+                                              main_leds(2)          <= T80_INT_n; 
+                                              main_leds(3)          <= T80_BUSRQ_n;
+                                              main_leds(4)          <= T80_M1_n;
+                                              main_leds(5)          <= T80_IORQ_n;
+                                              main_leds(6)          <= T80_RD_n;                              
+                                              main_leds(7)          <= T80_WR_n;
+                                    when 8 => main_leds(7 downto 0) <= "00010100";                     
+                                    when 10=> main_leds(7 downto 0) <= "00010101";                     
+                                    when 12=> main_leds(7 downto 0) <= "00010110";                     
+                                    when others => main_leds        <= "00010111";
+                                end case;
+                
+                            -- Bank 1 : Video, Keyboard and CMT
+                            elsif( DEBUG(LEDS_BANK) = "001") then
+                                case debug_counter is
+                                    when 0 => main_leds(7 downto 0) <= "00110000";                     
+                                    when 1 => main_leds(0)          <= MZ_VBLANK;                      -- Video signals
+                                              main_leds(1)          <= MZ_HBLANK;                      -- Video signals
+                                              main_leds(2)          <= '0';
+                                              main_leds(3)          <= MZ_HSYNC_n;
+                                              main_leds(4)          <= MZ_VSYNC_n;
+                                              main_leds(5)          <= MZ_R(7);
+                                              main_leds(6)          <= MZ_G(7);
+                                              main_leds(7)          <= MZ_B(7);
+                                    when 2 => main_leds(7 downto 0) <= "00110001";                     
+                                    when 3 => main_leds(0)          <= MZ_PS2_KEY(0);                  -- PS2 Keyboard Data
+                                              main_leds(1)          <= MZ_PS2_KEY(1);
+                                              main_leds(2)          <= MZ_PS2_KEY(2);
+                                              main_leds(3)          <= MZ_PS2_KEY(3);
+                                              main_leds(4)          <= MZ_PS2_KEY(4);
+                                              main_leds(5)          <= MZ_PS2_KEY(5);
+                                              main_leds(6)          <= MZ_PS2_KEY(6);
+                                              main_leds(7)          <= MZ_PS2_KEY(7);
+                                    when 4 => main_leds(7 downto 0) <= "00110010";                     
+                                    when 5 => main_leds(0)          <= MZ_PS2_KEY(9);
+                                              main_leds(1)          <= MZ_PS2_KEY(10);
+                                              main_leds(2)          <= MZ_CS_ROM_n;
+                                              main_leds(3)          <= MZ_CS_RAM_n;
+                                              main_leds(4)          <= WENSYSRAM;
+                                              main_leds(7 downto 5) <= CONFIG(TURBO);
+                                    when 6 => main_leds(7 downto 0) <= "00111011";                     
+                                    when 7 => main_leds             <= MZ_CMT_DEBUG_LEDS(7 downto 0);
+                                    when 8 => main_leds(7 downto 0) <= "00111100";                     
+                                    when 9 => main_leds             <= MZ_CMT_DEBUG_LEDS(15 downto 8);
+                                    when 10=> main_leds(7 downto 0) <= "00111101";                     
+                                    when 11=> main_leds             <= MZ_CMT_DEBUG_LEDS(23 downto 16);
+                                    when 12=> main_leds(7 downto 0) <= "00111110";                     
+                                    when 13=> main_leds             <= MZ_CMT_DEBUG_LEDS(31 downto 24);
+                                    when others => main_leds        <= "00110111";
+                                end case;
+                
+                            -- Bank 2: IOCTL
+                            elsif( DEBUG(LEDS_BANK) = "010") then
+                                case debug_counter is
+                                    when 0 => main_leds(7 downto 0) <= "01010000";                    
+                                    when 1 => main_leds             <= MZ_IOCTL_ADDR(23 downto 16);
+                                    when 2 => main_leds(7 downto 0) <= "01010001";                     
+                                    when 3 => main_leds             <= MZ_IOCTL_ADDR(15 downto 8);
+                                    when 4 => main_leds(7 downto 0) <= "01010010";                     
+                                    when 5 => main_leds             <= MZ_IOCTL_ADDR(7 downto 0);
+                                    when 6 => main_leds(7 downto 0) <= "01010011";                    
+                                    when 7 => main_leds(0)          <= MZ_IOCTL_RD;
+                                              main_leds(1)          <= MZ_IOCTL_WR;
+                                              main_leds(2)          <= MZ_IOCTL_DOWNLOAD;
+                                              main_leds(3)          <= MZ_IOCTL_UPLOAD;
+                                              main_leds(4)          <= MZ_IOCTL_WENROM;
+                                              main_leds(5)          <= MZ_IOCTL_WENRAM;
+                                              main_leds(6)          <= MZ_IOCTL_RENROM;
+                                              main_leds(7)          <= MZ_IOCTL_RENRAM;
+                                    when 8 => main_leds(7 downto 0) <= "01010100";                     
+                                    when 10=> main_leds(7 downto 0) <= "01010101";                     
+                                    when 12=> main_leds(7 downto 0) <= "01010110";                     
+                                    when others => main_leds        <= "01010111";
+                                end case;
+                
+                            -- Bank 3 : Config
+                            elsif( DEBUG(LEDS_BANK) = "011") then
+                                case debug_counter is
+                                    when 0 => main_leds(7 downto 0) <= "01110000";                    
+                                    when 1 => main_leds(0)          <= CONFIG(MZ80K);                  -- Mode of operation.
+                                              main_leds(1)          <= CONFIG(pkgs.mctrl_pkg.MZ80C);
+                                              main_leds(2)          <= CONFIG(MZ1200);
+                                              main_leds(3)          <= CONFIG(MZ80A);
+                                              main_leds(4)          <= CONFIG(pkgs.mctrl_pkg.MZ80B);
+                                              main_leds(5)          <= CONFIG(MZ2000);
+                                              main_leds(6)          <= CONFIG(MZ700);
+                                              main_leds(7)          <= CONFIG(MZ800);
+                                    when 2 => main_leds(7 downto 0) <= "01110001";                     
+                                    when 3 => main_leds(0)          <= CONFIG(MZ_KC);
+                                              main_leds(1)          <= CONFIG(MZ_A);
+                                              main_leds(2)          <= CONFIG(pkgs.mctrl_pkg.MZ_B);
+                                              main_leds(3)          <= CONFIG(MZ_80B);
+                                              main_leds(4)          <= CONFIG(MZ_80C);
+                                              main_leds(5)          <= CONFIG(NORMAL);
+                                              main_leds(6)          <= CONFIG(NORMAL80);
+                                              main_leds(7)          <= CONFIG(COLOUR);
+                                    when 4 => main_leds(7 downto 0) <= "01110010";                     
+                                    when 5 => main_leds(0)          <= CONFIG(AUDIOSRC);
+                                              main_leds(3 downto 1) <= CONFIG(TURBO);
+                                              main_leds(6 downto 4) <= CONFIG(FASTTAPE);
+                                              main_leds(7)          <= CONFIG(PCGRAM);
+                                    when 6 => main_leds(7 downto 0) <= "01110011";                    
+                                    when 7 => main_leds(3 downto 0) <= CONFIG(CPUSPEED);
+                                              main_leds(6 downto 4) <= CONFIG(VIDSPEED);
+                                              main_leds(7)          <= '0';
+                                    when 8 => main_leds(7 downto 0) <= "01110100";                     
+                                    when 9 => main_leds(1 downto 0) <= CONFIG(PERSPEED);
+                                              main_leds(3 downto 2) <= CONFIG(RTCSPEED);
+                                              main_leds(5 downto 4) <= CONFIG(SNDSPEED);
+                                              main_leds(7 downto 6) <= CONFIG(BUTTONS);
+                                    when 10=> main_leds(7 downto 0) <= "01110101";                     
+                                    when 11=> main_leds             <= "00000000";
+                                    when 12=> main_leds(7 downto 0) <= "01110110";                     
+                                    when 13=> main_leds             <= "00000000";
+                                    when others => main_leds        <= "01110111";
+                                end case;
+                                
+                
+                            -- Bank 4 & 5: MZ80C Debug Leds
+                            elsif( DEBUG(LEDS_BANK) = "100") then
+                                case debug_counter is
+                                    when 0 => main_leds(7 downto 0) <= "10010000";                    
+                                    when 1 => main_leds             <= MZ80C_DEBUG_LEDS(7 downto 0);
+                                    when 2 => main_leds(7 downto 0) <= "10010001";                     
+                                    when 3 => main_leds             <= MZ80C_DEBUG_LEDS(15 downto 8);
+                                    when 4 => main_leds(7 downto 0) <= "10010010";                     
+                                    when 5 => main_leds             <= MZ80C_DEBUG_LEDS(23 downto 16);
+                                    when 6 => main_leds(7 downto 0) <= "10010011";                     
+                                    when 7 => main_leds             <= MZ80C_DEBUG_LEDS(31 downto 24);
+                                    when 8 => main_leds(7 downto 0) <= "10010100";                     
+                                    when 9 => main_leds             <= MZ80C_DEBUG_LEDS(39 downto 32);
+                                    when 10=> main_leds(7 downto 0) <= "10010101";                     
+                                    when 11=> main_leds             <= MZ80C_DEBUG_LEDS(47 downto 40);
+                                    when 12=> main_leds(7 downto 0) <= "10010110";                     
+                                    when 13=> main_leds             <= MZ80C_DEBUG_LEDS(55 downto 48);
+                                    when others => main_leds        <= "10010111";
+                                end case;
+                            elsif( DEBUG(LEDS_BANK) = "101") then
+                                case debug_counter is
+                                    when 0 => main_leds(7 downto 0) <= "10110000";                    
+                                    when 1 => main_leds             <= MZ80C_DEBUG_LEDS(63 downto 56);
+                                    when 2 => main_leds(7 downto 0) <= "10110001";
+                                    when 3 => main_leds             <= MZ80C_DEBUG_LEDS(71 downto 64);
+                                    when 4 => main_leds(7 downto 0) <= "10110010";                     
+                                    when 5 => main_leds             <= MZ80C_DEBUG_LEDS(79 downto 72);
+                                    when 6 => main_leds(7 downto 0) <= "10110011";                     
+                                    when 7 => main_leds             <= MZ80C_DEBUG_LEDS(87 downto 80);
+                                    when 8 => main_leds(7 downto 0) <= "10110100";                     
+                                    when 9 => main_leds             <= MZ80C_DEBUG_LEDS(95 downto 88);
+                                    when 10=> main_leds(7 downto 0) <= "10110101";                     
+                                    when 11=> main_leds             <= MZ80C_DEBUG_LEDS(103 downto 96);
+                                    when 12=> main_leds(7 downto 0) <= "10110110";                     
+                                    when 13=> main_leds             <= MZ80C_DEBUG_LEDS(111 downto 104);
+                                    when others => main_leds        <= "10110111";
+                                end case;
+                
+                            -- Bank 6 & 7 : MZ80B Debug Leds
+                            elsif( DEBUG(LEDS_BANK) = "110") then
+                                case debug_counter is
+                                    when 0 => main_leds(7 downto 0) <= "11010000";                    
+                                    when 1 => main_leds             <= MZ80B_DEBUG_LEDS(7 downto 0);
+                                    when 2 => main_leds(7 downto 0) <= "11010001";                     
+                                    when 3 => main_leds             <= MZ80B_DEBUG_LEDS(15 downto 8);
+                                    when 4 => main_leds(7 downto 0) <= "11010010";                     
+                                    when 5 => main_leds             <= MZ80B_DEBUG_LEDS(23 downto 16);
+                                    when 6 => main_leds(7 downto 0) <= "11010011";                     
+                                    when 7 => main_leds             <= MZ80B_DEBUG_LEDS(31 downto 24);
+                                    when 8 => main_leds(7 downto 0) <= "11010100";                     
+                                    when 9 => main_leds             <= MZ80B_DEBUG_LEDS(39 downto 32);
+                                    when 10=> main_leds(7 downto 0) <= "11010101";                     
+                                    when 11=> main_leds             <= MZ80B_DEBUG_LEDS(47 downto 40);
+                                    when 12=> main_leds(7 downto 0) <= "11010110";                     
+                                    when 13=> main_leds             <= MZ80B_DEBUG_LEDS(55 downto 48);
+                                    when others => main_leds        <= "11010111";
+                                end case;
+                            elsif( DEBUG(LEDS_BANK) = "111") then
+                                case debug_counter is
+                                    when 0 => main_leds(7 downto 0) <= "11110000";                    
+                                    when 1 => main_leds             <= MZ80B_DEBUG_LEDS(63 downto 56);
+                                    when 2 => main_leds(7 downto 0) <= "11110001";                     
+                                    when 3 => main_leds             <= MZ80B_DEBUG_LEDS(71 downto 64);
+                                    when 4 => main_leds(7 downto 0) <= "11110010";                     
+                                    when 5 => main_leds             <= MZ80B_DEBUG_LEDS(79 downto 72);
+                                    when 6 => main_leds(7 downto 0) <= "11110011";                     
+                                    when 7 => main_leds             <= MZ80B_DEBUG_LEDS(87 downto 80);
+                                    when 8 => main_leds(7 downto 0) <= "11110100";                     
+                                    when 9 => main_leds             <= MZ80B_DEBUG_LEDS(95 downto 88);
+                                    when 10=> main_leds(7 downto 0) <= "11110101";                     
+                                    when 11=> main_leds             <= MZ80B_DEBUG_LEDS(103 downto 96);
+                                    when 12=> main_leds(7 downto 0) <= "11110110";                     
+                                    when 13=> main_leds             <= MZ80B_DEBUG_LEDS(111 downto 104);
+                                    when others => main_leds        <= "11110111";
+                                end case;
                             end if;
-                    end case;
-        
-                    -- Bank 0 : T80 Signals
-                    if( DEBUG(LEDS_BANK) = "000") then
-                        case debug_counter is
-                            when 0 => main_leds(7 downto 0) <= "00010000";                     
-                            when 1 => main_leds(7 downto 0) <= T80_A16(7 downto 0);            -- Address Bus A0->A7
-                            when 2 => main_leds(7 downto 0) <= "00010001";                     
-                            when 3 => main_leds(7 downto 0) <= T80_A16(15 downto 8);           -- Address Bus A8->A15
-                            when 4 => main_leds(7 downto 0) <= "00010010";                     
-                            when 5 => main_leds(7 downto 0) <= T80_DI(7 downto 0);             -- Data Bus D0->D7
-                            when 6 => main_leds(7 downto 0) <= "00010011";                     
-                            when 7 => main_leds(0)          <= T80_RST_n;                      -- T80 signals
-                                      main_leds(1)          <= T80_WAIT_n;
-                                      main_leds(2)          <= T80_INT_n; 
-                                      main_leds(3)          <= T80_BUSRQ_n;
-                                      main_leds(4)          <= T80_M1_n;
-                                      main_leds(5)          <= T80_IORQ_n;
-                                      main_leds(6)          <= T80_MRD_n;                              
-                                      main_leds(7)          <= T80_MWR_n;
-                            when 8 => main_leds(7 downto 0) <= "00010100";                     
-                            when 10=> main_leds(7 downto 0) <= "00010101";                     
-                            when 12=> main_leds(7 downto 0) <= "00010110";                     
-                            when others => main_leds        <= "00010111";
-                        end case;
-        
-                    -- Bank 1 : Video and Keyboard.
-                    elsif( DEBUG(LEDS_BANK) = "001") then
-                        case debug_counter is
-                            when 0 => main_leds(7 downto 0) <= "00110000";                     
-                            when 1 => main_leds(0)          <= MZ_VBLANK;                      -- Video signals
-                                      main_leds(1)          <= MZ_HBLANK;                      -- Video signals
-                                      main_leds(2)          <= '0';
-                                      main_leds(3)          <= MZ_HSYNC_n;
-                                      main_leds(4)          <= MZ_VSYNC_n;
-                                      main_leds(5)          <= MZ_R;
-                                      main_leds(6)          <= MZ_G;
-                                      main_leds(7)          <= MZ_B;
-                            when 2 => main_leds(7 downto 0) <= "00110001";                     
-                            when 3 => main_leds(0)          <= MZ_PS2_KEY(0);                  -- PS2 Keyboard Data
-                                      main_leds(1)          <= MZ_PS2_KEY(1);
-                                      main_leds(2)          <= MZ_PS2_KEY(2);
-                                      main_leds(3)          <= MZ_PS2_KEY(3);
-                                      main_leds(4)          <= MZ_PS2_KEY(4);
-                                      main_leds(5)          <= MZ_PS2_KEY(5);
-                                      main_leds(6)          <= MZ_PS2_KEY(6);
-                                      main_leds(7)          <= MZ_PS2_KEY(7);
-                            when 4 => main_leds(7 downto 0) <= "00110010";                     
-                            when 5 => main_leds(0)          <= MZ_PS2_KEY(9);
-                                      main_leds(1)          <= MZ_PS2_KEY(10);
-                                      main_leds(2)          <= CS_ROM_n;
-                                      main_leds(3)          <= CS_RAM_n;
-                                      main_leds(4)          <= WENSYSRAM;
-                                      main_leds(7 downto 5) <= CONFIG(TURBO);
-                            when 6 => main_leds(7 downto 0) <= "00111011";                     
-                            when 8 => main_leds(7 downto 0) <= "00111100";                     
-                            when 10=> main_leds(7 downto 0) <= "00111101";                     
-                            when 12=> main_leds(7 downto 0) <= "00111110";                     
-                            when others => main_leds        <= "00110111";
-                        end case;
-        
-                    -- Bank 2: IOCTL
-                    elsif( DEBUG(LEDS_BANK) = "010") then
-                        case debug_counter is
-                            when 0 => main_leds(7 downto 0) <= "01010000";                    
-                            when 1 => main_leds             <= MZ_IOCTL_ADDR(23 downto 16);
-                            when 2 => main_leds(7 downto 0) <= "01010001";                     
-                            when 3 => main_leds             <= MZ_IOCTL_ADDR(15 downto 8);
-                            when 4 => main_leds(7 downto 0) <= "01010010";                     
-                            when 5 => main_leds             <= MZ_IOCTL_ADDR(7 downto 0);
-                            when 6 => main_leds(7 downto 0) <= "01010011";                    
-                            when 7 => main_leds(0)          <= MZ_IOCTL_RD;
-                                      main_leds(1)          <= MZ_IOCTL_WR;
-                                      main_leds(2)          <= MZ_IOCTL_DOWNLOAD;
-                                      main_leds(3)          <= MZ_IOCTL_UPLOAD;
-                                      main_leds(4)          <= MZ_IOCTL_WENROM;
-                                      main_leds(5)          <= MZ_IOCTL_WENRAM;
-                                      main_leds(6)          <= MZ_IOCTL_RENROM;
-                                      main_leds(7)          <= MZ_IOCTL_RENRAM;
-                            when 8 => main_leds(7 downto 0) <= "01010100";                     
-                            when 10=> main_leds(7 downto 0) <= "01010101";                     
-                            when 12=> main_leds(7 downto 0) <= "01010110";                     
-                            when others => main_leds        <= "01010111";
-                        end case;
-        
-                    -- Bank 3 : Config
-                    elsif( DEBUG(LEDS_BANK) = "011") then
-                        case debug_counter is
-                            when 0 => main_leds(7 downto 0) <= "01110000";                    
-                            when 1 => main_leds(0)          <= CONFIG(MZ80K);                  -- Mode of operation.
-                                      main_leds(1)          <= CONFIG(pkgs.mctrl_pkg.MZ80C);
-                                      main_leds(2)          <= CONFIG(MZ1200);
-                                      main_leds(3)          <= CONFIG(MZ80A);
-                                      main_leds(4)          <= CONFIG(pkgs.mctrl_pkg.MZ80B);
-                                      main_leds(5)          <= CONFIG(MZ2000);
-                                      main_leds(6)          <= CONFIG(MZ700);
-                                      main_leds(7)          <= CONFIG(MZ800);
-                            when 2 => main_leds(7 downto 0) <= "01110001";                     
-                            when 3 => main_leds(0)          <= CONFIG(MZ_KC);
-                                      main_leds(1)          <= CONFIG(MZ_A);
-                                      main_leds(2)          <= CONFIG(pkgs.mctrl_pkg.MZ_B);
-                                      main_leds(3)          <= CONFIG(MZ_80B);
-                                      main_leds(4)          <= CONFIG(MZ_80C);
-                                      main_leds(5)          <= CONFIG(NORMAL);
-                                      main_leds(6)          <= CONFIG(NORMAL80);
-                                      main_leds(7)          <= CONFIG(COLOUR);
-                            when 4 => main_leds(7 downto 0) <= "01110010";                     
-                            when 5 => main_leds(0)          <= CONFIG(AUDIOSRC);
-                                      main_leds(3 downto 1) <= CONFIG(TURBO);
-                                      main_leds(6 downto 4) <= CONFIG(FASTTAPE);
-                                      main_leds(7)          <= CONFIG(PCGRAM);
-                            when 6 => main_leds(7 downto 0) <= "01110011";                    
-                            when 7 => main_leds(3 downto 0) <= CONFIG(CPUSPEED);
-                                      main_leds(6 downto 4) <= CONFIG(VIDSPEED);
-                                      main_leds(7)          <= '0';
-                            when 8 => main_leds(7 downto 0) <= "01110100";                     
-                            when 9 => main_leds(1 downto 0) <= CONFIG(PERSPEED);
-                                      main_leds(3 downto 2) <= CONFIG(RTCSPEED);
-                                      main_leds(5 downto 4) <= CONFIG(SNDSPEED);
-                                      main_leds(7 downto 6) <= CONFIG(BUTTONS);
-                            when 10=> main_leds(7 downto 0) <= "01110101";                     
-                            when 11=> main_leds             <= "00000000";
-                            when 12=> main_leds(7 downto 0) <= "01110110";                     
-                            when 13=> main_leds             <= "00000000";
-                            when others => main_leds        <= "01110111";
-                        end case;
-                        
-        
-                    -- Bank 4 & 5: MZ80C Debug Leds
-                    elsif( DEBUG(LEDS_BANK) = "100") then
-                        case debug_counter is
-                            when 0 => main_leds(7 downto 0) <= "10010000";                    
-                            when 1 => main_leds             <= MZ80C_DEBUG_LEDS(7 downto 0);
-                            when 2 => main_leds(7 downto 0) <= "10010001";                     
-                            when 3 => main_leds             <= MZ80C_DEBUG_LEDS(15 downto 8);
-                            when 4 => main_leds(7 downto 0) <= "10010010";                     
-                            when 5 => main_leds             <= MZ80C_DEBUG_LEDS(23 downto 16);
-                            when 6 => main_leds(7 downto 0) <= "10010011";                     
-                            when 7 => main_leds             <= MZ80C_DEBUG_LEDS(31 downto 24);
-                            when 8 => main_leds(7 downto 0) <= "10010100";                     
-                            when 9 => main_leds             <= MZ80C_DEBUG_LEDS(39 downto 32);
-                            when 10=> main_leds(7 downto 0) <= "10010101";                     
-                            when 11=> main_leds             <= MZ80C_DEBUG_LEDS(47 downto 40);
-                            when 12=> main_leds(7 downto 0) <= "10010110";                     
-                            when 13=> main_leds             <= MZ80C_DEBUG_LEDS(55 downto 48);
-                            when others => main_leds        <= "10010111";
-                        end case;
-                    elsif( DEBUG(LEDS_BANK) = "101") then
-                        case debug_counter is
-                            when 0 => main_leds(7 downto 0) <= "10110000";                    
-                            when 1 => main_leds             <= MZ80C_DEBUG_LEDS(63 downto 56);
-                            when 2 => main_leds(7 downto 0) <= "10110001";
-                            when 3 => main_leds             <= MZ80C_DEBUG_LEDS(71 downto 64);
-                            when 4 => main_leds(7 downto 0) <= "10110010";                     
-                            when 5 => main_leds             <= MZ80C_DEBUG_LEDS(79 downto 72);
-                            when 6 => main_leds(7 downto 0) <= "10110011";                     
-                            when 7 => main_leds             <= MZ80C_DEBUG_LEDS(87 downto 80);
-                            when 8 => main_leds(7 downto 0) <= "10110100";                     
-                            when 9 => main_leds             <= MZ80C_DEBUG_LEDS(95 downto 88);
-                            when 10=> main_leds(7 downto 0) <= "10110101";                     
-                            when 11=> main_leds             <= MZ80C_DEBUG_LEDS(103 downto 96);
-                            when 12=> main_leds(7 downto 0) <= "10110110";                     
-                            when 13=> main_leds             <= MZ80C_DEBUG_LEDS(111 downto 104);
-                            when others => main_leds        <= "10110111";
-                        end case;
-        
-                    -- Bank 6 & 7 : MZ80B Debug Leds
-                    elsif( DEBUG(LEDS_BANK) = "110") then
-                        case debug_counter is
-                            when 0 => main_leds(7 downto 0) <= "11010000";                    
-                            when 1 => main_leds             <= MZ80B_DEBUG_LEDS(7 downto 0);
-                            when 2 => main_leds(7 downto 0) <= "11010001";                     
-                            when 3 => main_leds             <= MZ80B_DEBUG_LEDS(15 downto 8);
-                            when 4 => main_leds(7 downto 0) <= "11010010";                     
-                            when 5 => main_leds             <= MZ80B_DEBUG_LEDS(23 downto 16);
-                            when 6 => main_leds(7 downto 0) <= "11010011";                     
-                            when 7 => main_leds             <= MZ80B_DEBUG_LEDS(31 downto 24);
-                            when 8 => main_leds(7 downto 0) <= "11010100";                     
-                            when 9 => main_leds             <= MZ80B_DEBUG_LEDS(39 downto 32);
-                            when 10=> main_leds(7 downto 0) <= "11010101";                     
-                            when 11=> main_leds             <= MZ80B_DEBUG_LEDS(47 downto 40);
-                            when 12=> main_leds(7 downto 0) <= "11010110";                     
-                            when 13=> main_leds             <= MZ80B_DEBUG_LEDS(55 downto 48);
-                            when others => main_leds        <= "11010111";
-                        end case;
-                    elsif( DEBUG(LEDS_BANK) = "111") then
-                        case debug_counter is
-                            when 0 => main_leds(7 downto 0) <= "11110000";                    
-                            when 1 => main_leds             <= MZ80B_DEBUG_LEDS(63 downto 56);
-                            when 2 => main_leds(7 downto 0) <= "11110001";                     
-                            when 3 => main_leds             <= MZ80B_DEBUG_LEDS(71 downto 64);
-                            when 4 => main_leds(7 downto 0) <= "11110010";                     
-                            when 5 => main_leds             <= MZ80B_DEBUG_LEDS(79 downto 72);
-                            when 6 => main_leds(7 downto 0) <= "11110011";                     
-                            when 7 => main_leds             <= MZ80B_DEBUG_LEDS(87 downto 80);
-                            when 8 => main_leds(7 downto 0) <= "11110100";                     
-                            when 9 => main_leds             <= MZ80B_DEBUG_LEDS(95 downto 88);
-                            when 10=> main_leds(7 downto 0) <= "11110101";                     
-                            when 11=> main_leds             <= MZ80B_DEBUG_LEDS(103 downto 96);
-                            when 12=> main_leds(7 downto 0) <= "11110110";                     
-                            when 13=> main_leds             <= MZ80B_DEBUG_LEDS(111 downto 104);
-                            when others => main_leds        <= "11110111";
-                        end case;
+                        end if;
                     end if;
                 end if;
             end if;
-        end if;
-    end process;
+        end process;
+    end generate;
+    DEBUG1: if DEBUG_ENABLE = 0 generate
+        main_leds   <= (others => '0');
+    end generate;
 end rtl;

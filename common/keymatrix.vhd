@@ -46,6 +46,7 @@ entity keymatrix is
         PA                   : in  std_logic_vector(3 downto 0);
         PB                   : out std_logic_vector(7 downto 0);
         STALL                : in  std_logic;
+        BREAKDETECT          : out std_logic;
 
         -- PS/2 Keyboard Data
         PS2_KEY              : in  std_logic_vector(10 downto 0);        -- PS2 Key data.
@@ -63,8 +64,8 @@ entity keymatrix is
         IOCTL_WR             : in  std_logic;                            -- HPS Write Enable to FPGA.
         IOCTL_RD             : in  std_logic;                            -- HPS Read Enable from FPGA.
         IOCTL_ADDR           : in  std_logic_vector(24 downto 0);        -- HPS Address in FPGA to write into.
-        IOCTL_DOUT           : in  std_logic_vector(15 downto 0);        -- HPS Data to be written into FPGA.
-        IOCTL_DIN            : out std_logic_vector(15 downto 0)         -- HPS Data to be read into HPS.
+        IOCTL_DOUT           : in  std_logic_vector(31 downto 0);        -- HPS Data to be written into FPGA.
+        IOCTL_DIN            : out std_logic_vector(31 downto 0)         -- HPS Data to be read into HPS.
     );
 end keymatrix;
 
@@ -100,7 +101,6 @@ signal SCANLL                : std_logic_vector(7 downto 0);
 signal MTEN                  : std_logic_vector(3 downto 0);
 signal F_KBDT                : std_logic_vector(7 downto 0);
 signal MAP_DATA              : std_logic_vector(7 downto 0);
-signal MAP_ADDR              : std_logic_vector(7 downto 0);
 signal KEY_BANK              : std_logic_vector(2 downto 0);
 
 --
@@ -150,13 +150,13 @@ begin
 
     MAP0 : dprom
     GENERIC MAP (
-      --init_file            => "./mif/key_80k_80b.mif",
-        init_file            => "./mif/combined_keymap.mif",
+      --init_file            => "./software/mif/key_80k_80b.mif",
+        init_file            => "./software/mif/combined_keymap.mif",
         widthad_a            => 11,
         width_a              => 8
     ) 
     PORT MAP (
-        clock_a              => CLKBUS(CKCPU),
+        clock_a              => CLKBUS(CKMASTER),
         address_a            => KEY_BANK & F_KBDT,
 --      data_a               => IOCTL_DOUT(7 DOWNTO 0),
 --      wren_a               => 
@@ -170,28 +170,46 @@ begin
     );
 
     -- Store changes to the key valid flag in a flip flop.
-    process( CLKBUS(CKCPU) ) begin
-        if rising_edge(CLKBUS(CKCPU)) then
-            KEY_FLAG <= PS2_KEY(10);
+    process( CLKBUS(CKMASTER) ) begin
+        if rising_edge(CLKBUS(CKMASTER)) then
+            if CLKBUS(CKENCPU) = '1' then
+                KEY_FLAG <= PS2_KEY(10);
+            end if;
         end if;
     end process;
 
-    KEY_PRESS    <= PS2_KEY(9);
-    KEY_EXTENDED <= PS2_KEY(8);
-    KEY_VALID    <= '1'     when KEY_FLAG /= PS2_KEY(10)  else '0';
-    KEY_BANK     <= "000"   when CONFIG(MZ80K)  = '1'        else          -- Key map for MZ80K
-                    "001"   when CONFIG(MZ80C)  = '1'        else          -- Key map for MZ80C
-                    "010"   when CONFIG(MZ1200) = '1'        else          -- Key map for MZ1200
-                    "011"   when CONFIG(MZ80A)  = '1'        else          -- Key map for MZ80A
-                    "100"   when CONFIG(MZ700)  = '1'        else          -- Key map for MZ700
-                    "101"   when CONFIG(MZ800)  = '1'        else          -- Key map for MZ800
-                    "110"   when CONFIG(MZ80B)  = '1'        else          -- Key map for MZ80B
-                    "111"   when CONFIG(MZ2000) = '1';                     -- Key map for MZ2000
+    -- Set the key mapping to use according to selected machine.
+    --
+    process( RST_n, CLKBUS(CKMASTER) ) begin
+        if RST_n = '0' then
+            KEY_BANK <= "000";
+        elsif CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER)='1' then
+            if CLKBUS(CKENCPU) = '1' then
+                if CONFIG(MZ80K)  = '1' then                                 -- Key map for MZ80K
+                    KEY_BANK <= "000";
+                elsif CONFIG(MZ80C)  = '1' then                              -- Key map for MZ80C
+                    KEY_BANK <= "001";
+                elsif CONFIG(MZ1200) = '1' then                              -- Key map for MZ1200
+                    KEY_BANK <= "010";
+                elsif CONFIG(MZ80A)  = '1' then                              -- Key map for MZ80A
+                    KEY_BANK <= "011";
+                elsif CONFIG(MZ700)  = '1' then                              -- Key map for MZ700
+                    KEY_BANK <= "100";
+                elsif CONFIG(MZ800)  = '1' then                              -- Key map for MZ800
+                    KEY_BANK <= "101";
+                elsif CONFIG(MZ80B)  = '1' then                              -- Key map for MZ80B
+                    KEY_BANK <= "110";
+                elsif CONFIG(MZ2000) = '1' then                              -- Key map for MZ2000
+                    KEY_BANK <= "111";
+                end if;
+            end if;
+        end if;
+    end process;
 
     --
     -- Convert
     --
-    process( RST_n, CLKBUS(CKCPU) ) begin
+    process( RST_n, CLKBUS(CKMASTER) ) begin
         if RST_n = '0' then
             SCAN00   <= (others=>'0');
             SCAN01   <= (others=>'0');
@@ -211,43 +229,44 @@ begin
             FLGF0    <= '0';
             FLGE0    <= '0';
             MTEN     <= (others=>'0');
-            MAP_ADDR <= (others=>'1');
 
-        elsif CLKBUS(CKCPU)'event and CLKBUS(CKCPU)='1' then
-            MTEN     <= MTEN(2 downto 0) & KEY_VALID;
-            if KEY_VALID='1' then
-                if(KEY_EXTENDED='1') then
-                    FLGE0  <= '1';
+        elsif CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER)='1' then
+            if CLKBUS(CKENCPU) = '1' then
+                MTEN           <= MTEN(2 downto 0) & KEY_VALID;
+                if KEY_VALID='1' then
+                    if(KEY_EXTENDED='1') then
+                        FLGE0  <= '1';
+                    end if;
+                    if(KEY_PRESS='0') then
+                        FLGF0  <= '1';
+                    end if;
+                    if(PS2_KEY(7 downto 0) = X"AA" ) then
+                        F_KBDT <= X"EF";
+                    else
+                        F_KBDT <= FLGE0 & PS2_KEY(6 downto 0); FLGE0<='0';
+                    end if;
                 end if;
-                if(KEY_PRESS='0') then
-                    FLGF0  <= '1';
+    
+                if MTEN(3)='1' then
+                    case MAP_DATA(7 downto 4) is                                 
+                        when "0000" => SCAN00(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "0001" => SCAN01(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "0010" => SCAN02(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "0011" => SCAN03(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "0100" => SCAN04(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "0101" => SCAN05(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "0110" => SCAN06(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "0111" => SCAN07(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "1000" => SCAN08(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "1001" => SCAN09(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "1010" => SCAN10(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "1011" => SCAN11(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "1100" => SCAN12(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "1101" => SCAN13(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                        when "1110" => SCAN14(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0;
+                        when others => SCAN14(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
+                    end case;
                 end if;
-                if(PS2_KEY(7 downto 0) = X"AA" ) then
-                    F_KBDT <= X"EF";
-                else
-                    F_KBDT <= FLGE0 & PS2_KEY(6 downto 0); FLGE0<='0';
-                end if;
-            end if;
-
-            if MTEN(3)='1' then
-                case MAP_DATA(7 downto 4) is                                 
-                    when "0000" => SCAN00(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "0001" => SCAN01(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "0010" => SCAN02(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "0011" => SCAN03(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "0100" => SCAN04(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "0101" => SCAN05(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "0110" => SCAN06(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "0111" => SCAN07(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "1000" => SCAN08(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "1001" => SCAN09(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "1010" => SCAN10(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "1011" => SCAN11(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "1100" => SCAN12(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "1101" => SCAN13(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                    when "1110" => SCAN14(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0;
-                    when others => SCAN14(conv_integer(MAP_DATA(2 downto 0))) <= not FLGF0; FLGF0 <= '0';
-                end case;
             end if;
         end if;
     end process;
@@ -277,12 +296,23 @@ begin
           (not SCAN12) when PA="1100"                       else
           (not SCAN13) when PA="1101"                       else (others=>'1');
 
+    -- Setup key extension signals to use in mapping.
+    --
+    KEY_PRESS        <= PS2_KEY(9);
+    KEY_EXTENDED     <= PS2_KEY(8);
+    KEY_VALID        <= '1' when KEY_FLAG /= PS2_KEY(10)
+                        else '0';
+
+    -- Break detect is connected to SCAN line 3, bit 7. When the strobe is set to 03H and the break key is pressed
+    -- this signal will go low and detected in the IPL.
+    BREAKDETECT      <= not SCAN03(7);
+
     --
     -- HPS access to reload keymap.
     --
-    IOCTL_KEYMAP_WEN <= '1'                      when IOCTL_ADDR(24 downto 16)="000000011" and IOCTL_WR = '1'
+    IOCTL_KEYMAP_WEN <= '1'                          when IOCTL_ADDR(24 downto 16) = "000100011" and IOCTL_WR = '1'
                         else '0';
-    IOCTL_DIN        <= X"00" & IOCTL_DIN_KEYMAP when IOCTL_ADDR(24 downto 16)="000000011" and IOCTL_RD = '1'
+    IOCTL_DIN        <= X"000000" & IOCTL_DIN_KEYMAP when IOCTL_ADDR(24 downto 16) = "000100011" and IOCTL_RD = '1'
                         else
                         (others=>'0');
 

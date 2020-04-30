@@ -30,11 +30,11 @@
 
 JARDIR=../tools
 ASM=glass.jar
-BUILDROMLIST="monitor_SA1510 monitor_80c_SA1510 monitor_mz-1r12 quickdisk_mz-1e05 quickdisk_mz-1e14 monitor_1Z-013A monitor_80c_1Z-013A"
-BUILDMZFLIST="hi-ramcheck tapecheck"
-ASMDIR=../asm
-ROMDIR=../roms
-MZFDIR=../mzf
+BUILDROMLIST="IPL monitor_SA1510 monitor_80c_SA1510 monitor_mz-1r12 quickdisk_mz-1e05 quickdisk_mz-1e14 monitor_1Z-013A monitor_80c_1Z-013A"
+BUILDMZFLIST="hi-ramcheck sharpmz-test"
+ASMDIR=../software/asm
+ROMDIR=../software/roms
+MZFDIR=../software/mzf
 
 # Go through list and build image.
 #
