@@ -31,30 +31,34 @@
 --                  A lot of timing information can be found in the docs/SharpMZ_Notes.xlsx spreadsheet,
 --                  but the main info is:
 --                      MZ80K/C/1200/A (Monochrome)                
---                      Signal    Start    End    Period    Comment
+--
 --                      64uS 15.625KHz                
---                      HDISPEN    0    320     40uS    
---                      HBLANK    318    510     24uS    
---                      BLNK        318    486     21uS    
---                      HSYNC    393    438     5.625uS    
+--                      Signal    Start    End     Period       Comment
+--                      HDISPEN    0       320     40uS    
+--                      HBLANK    318      510     24uS    
+--                      BLNK      318      486     21uS    
+--                      HSYNC     393      438     5.625uS    
 --                 
 --                      16.64mS 60.10Hz                
---                      VDISPEN    0    200     12.8mS    
---                      VSYNC    219    223     256uS    
---                      VBLANK    201    259     3.712mS    not VDISPEN
+--                      Signal    Start    End     Period       Comment
+--                      VDISPEN    0       200     12.8mS    
+--                      VSYNC     219      223     256uS    
+--                      VBLANK    201      259     3.712mS      not VDISPEN
 --                 
 --                      MZ700 (Colour)                
---                      Signal    Start    End    Period    Comment
+--
 --                      64.056uS 15.611KHz                
---                      HDISPEN    0    320     36.088uS    
---                      HBLANK    320    567     27.968uS    
---                      BLNK    320    548     25.7126uS    
---                      HSYNC    400    440       4.567375uS    
+--                      Signal    Start    End     Period       Comment
+--                      HDISPEN    0       320     36.088uS    
+--                      HBLANK    320      567     27.968uS    
+--                      BLNK      320      548     25.7126uS    
+--                      HSYNC     400      440     4.567375uS    
 --                 
 --                      16.654mS 50.0374Hz                
---                      VDISPEN    0    200     12.8112mS    
---                      VSYNC    212    215     0.19216ms    
---                      VBLANK    201    311     7.1738mS     not VDISPEN                                                                                                            
+--                      Signal    Start    End     Period       Comment
+--                      VDISPEN    0       200     12.8112mS    
+--                      VSYNC     212      215     0.19216ms    
+--                      VBLANK    201      311     7.1738mS     not VDISPEN                                                                                                            
 --
 --                  A Look Up Table was added to allow for VGA display resolutions and upscaling as necessary. 
 --                  All video parameters are now stored in the LUT.
