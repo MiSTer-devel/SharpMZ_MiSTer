@@ -1,5 +1,5 @@
 For a better rendered view of this README, please look at my [github.io website](https://www.eaw.app/sharpmz-emulator/)
-<br>
+<br><br>
 This project aims to provide full hardware emulation (along with extensions) of the Sharp MZ Series Computers. 
 
 The initial version is based on the Terasic DE10 Nano board and hosted under the [MiSTer_Devel](https://github.com/MiSTer_Devel) project using the HPS processor for UI operations. Work is currently under way to embed the [ZPU Evo](/zpu-evo/) into
