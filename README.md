@@ -1,3 +1,5 @@
+# [Sharp MZ](https://en.wikipedia.org/wiki/Sharp_MZ) for MiSTer Platform
+
 For a better rendered view of this README, please look at my [github.io website](https://www.eaw.app/sharpmz-emulator/)
 <br><br>
 This project aims to provide full hardware emulation (along with extensions) of the Sharp MZ Series Computers. 
