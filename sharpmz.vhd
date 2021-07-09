@@ -1089,7 +1089,7 @@ begin
     -- Clocks.
     --
     CLKSYS                   <= CLKBUS(CKMASTER);                       -- HPS clock.
-    CLKVID                   <= CLKBUS(CKVIDEO);                        -- Video pixel clock output.
+    CLKVID                   <= CLKBUS(CKENVIDEO);--CKVIDEO);                        -- Video pixel clock output.
     CLKIOP                   <= CLKBUS(CKIOP);                          -- IO Processor Clock.
 
     -- Multiplexer -> Signals to enabled hardware.
