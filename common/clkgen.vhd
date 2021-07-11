@@ -106,6 +106,7 @@ signal PLLLOCKED2                  : std_logic;
 signal PLLLOCKED3                  : std_logic;           
 signal CK448Mi                     : std_logic;                          -- 448MHz
 signal CK112Mi                     : std_logic;                          -- 112MHz
+signal CKMasteri                   : std_logic;                          -- master clock -- change to allow us to run the clock slower, improve timing
 signal CK64Mi                      : std_logic;                          -- 64MHz
 signal CK56M750i                   : std_logic;                          -- 56MHz
 signal CK32Mi                      : std_logic;                          -- 32MHz
@@ -243,6 +244,9 @@ begin
             locked                 => PLLLOCKED3                         -- PLL locked.
         );
 
+		  
+		  CKMasteri <= CK56M750i;
+		  
     --
     -- Clock Generator - Basic divide circuit for higher end frequencies.
     --
@@ -546,7 +550,7 @@ begin
 
     -- Process the clocks according to the user selections and assign.
     --
-    process (RST, PLLLOCKED1, PLLLOCKED2, PLLLOCKED3, CK112Mi) 
+    process (RST, PLLLOCKED1, PLLLOCKED2, PLLLOCKED3, CKMasteri) 
     begin
         if RST = '1' or PLLLOCKED1 = '0' or PLLLOCKED2 = '0' or PLLLOCKED3 = '0' then
             CKENCPUi               <= '0';
@@ -558,7 +562,7 @@ begin
             CKVIDEOi               <= '0';
             PEREDGE                <= "00";
 
-        elsif rising_edge(CK112Mi) then
+        elsif rising_edge(CKMasteri) then
 
             -- Once the rising edge of the CPU clock is detected, enable the CPU Clock Enable signal
             -- which is used to enable the master clock onto the logic.
@@ -781,7 +785,7 @@ begin
 
     -- Assign necessary clocks and enables.
     --
-    CLKBUS(CKMASTER)               <= CK112Mi;
+    CLKBUS(CKMASTER)               <= CKMasteri;
     CLKBUS(CKSOUND)                <= CKSOUNDi;                          -- Sound base clock, 50/50 duty cycle.
     CLKBUS(CKRTC)                  <= CKRTCi;                            -- RTC base clock, 50/50 duty cycle.
     CLKBUS(CKENVIDEO)              <= CKENVIDEOi;                        -- Enable signal for video base clock.
