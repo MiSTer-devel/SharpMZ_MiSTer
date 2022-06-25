@@ -1,70 +1,69 @@
-set_global_assignment -name VHDL_FILE jtag_uart_0.vhd
-set_global_assignment -name SYSTEMVERILOG_FILE emu.sv
-set_global_assignment -name VHDL_FILE common/config_pkg.vhd
-set_global_assignment -name VHDL_FILE bridge.vhd
-set_global_assignment -name VHDL_FILE sharpmz.vhd
+set_global_assignment -name SYSTEMVERILOG_FILE sharpmz.sv
+
+set_global_assignment -name VHDL_FILE rtl/jtag_uart_0.vhd
+set_global_assignment -name VHDL_FILE rtl/config_pkg.vhd
+set_global_assignment -name VHDL_FILE rtl/bridge.vhd
+set_global_assignment -name VHDL_FILE rtl/sharpmz.vhd
 
 #============================================================
 # Latest T80 CPU
 #============================================================
-set_global_assignment -name VHDL_FILE common/T80/T80.vhd
-set_global_assignment -name VHDL_FILE common/T80/T8080se.vhd
-set_global_assignment -name VHDL_FILE common/T80/T80_ALU.vhd
-set_global_assignment -name VHDL_FILE common/T80/T80_MCode.vhd
-set_global_assignment -name VHDL_FILE common/T80/T80_Pack.vhd
-set_global_assignment -name VHDL_FILE common/T80/T80_Reg.vhd
-set_global_assignment -name VHDL_FILE common/T80/T80a.vhd
-set_global_assignment -name VHDL_FILE common/T80/T80se.vhd
-set_global_assignment -name VHDL_FILE common/T80/T80sed.vhd
+set_global_assignment -name VHDL_FILE rtl/T80/T80.vhd
+set_global_assignment -name VHDL_FILE rtl/T80/T8080se.vhd
+set_global_assignment -name VHDL_FILE rtl/T80/T80_ALU.vhd
+set_global_assignment -name VHDL_FILE rtl/T80/T80_MCode.vhd
+set_global_assignment -name VHDL_FILE rtl/T80/T80_Pack.vhd
+set_global_assignment -name VHDL_FILE rtl/T80/T80_Reg.vhd
+set_global_assignment -name VHDL_FILE rtl/T80/T80a.vhd
+set_global_assignment -name VHDL_FILE rtl/T80/T80se.vhd
+set_global_assignment -name VHDL_FILE rtl/T80/T80sed.vhd
 
 #============================================================
-# i8253 Programmable Interval Timer
+# i8254 Programmable Interval Timer
 #============================================================
-set_global_assignment -name VHDL_FILE common/i8254/i8254_counter.vhd
-set_global_assignment -name VHDL_FILE common/i8254/i8254.vhd
+set_global_assignment -name VHDL_FILE rtl/i8254/i8254_counter.vhd
+set_global_assignment -name VHDL_FILE rtl/i8254/i8254.vhd
 
 #============================================================
 # i8255 Programmable Peripheral Interface 
 #============================================================
-set_global_assignment -name VHDL_FILE common/i8255/i8255.vhd
-#set_global_assignment -name VHDL_FILE mz80b/i8255/i8255.vhd
+set_global_assignment -name VHDL_FILE rtl/i8255/i8255.vhd
+#set_global_assignment -name VHDL_FILE rtl/mz80b/i8255/i8255.vhd
 
 #============================================================
 # MZ80C specific modules.
 #============================================================
-set_global_assignment -name VHDL_FILE mz80c/mz80c.vhd
+set_global_assignment -name VHDL_FILE rtl/mz80c/mz80c.vhd
 
 #============================================================
 # MZ80B specific modules.
 #============================================================
-#set_global_assignment -name VHDL_FILE mz80b/mz80b_dummy.vhd
-set_global_assignment -name VHDL_FILE mz80b/mz80b.vhd
-
-
+#set_global_assignment -name VHDL_FILE rtl/mz80b/mz80b_dummy.vhd
+set_global_assignment -name VHDL_FILE rtl/mz80b/mz80b.vhd
 
 #============================================================
 # PLL
 #============================================================
-set_global_assignment -name QIP_FILE common/pll.qip
-set_global_assignment -name VHDL_FILE common/clkgen.vhd
-#set_global_assignment -name QIP_FILE common/pll_1.qip
-#set_global_assignment -name QIP_FILE common/pll_2.qip
-#set_global_assignment -name QIP_FILE common/pll_4.qip
+set_global_assignment -name QIP_FILE rtl/pll.qip
+set_global_assignment -name VHDL_FILE rtl/clkgen.vhd
+#set_global_assignment -name QIP_FILE rtl/submodules/pll_1.qip
+#set_global_assignment -name QIP_FILE rtl/submodules/pll_2.qip
+#set_global_assignment -name QIP_FILE rtl/submodules/pll_4.qip
 
 #============================================================
 # Common modules
 #============================================================
-set_global_assignment -name VHDL_FILE common/dprom.vhd
-set_global_assignment -name VHDL_FILE common/clk_div.vhd
-set_global_assignment -name VHDL_FILE common/mctrl.vhd
-set_global_assignment -name VHDL_FILE common/dpram.vhd
-set_global_assignment -name VHDL_FILE common/keymatrix.vhd
-set_global_assignment -name VHDL_FILE common/video.vhd
-set_global_assignment -name VHDL_FILE common/cmt.vhd
-set_global_assignment -name VHDL_FILE common/z8420/z8420.vhd
-set_global_assignment -name VHDL_FILE common/z8420/Interrupt.vhd
+set_global_assignment -name VHDL_FILE rtl/dprom.vhd
+set_global_assignment -name VHDL_FILE rtl/clk_div.vhd
+set_global_assignment -name VHDL_FILE rtl/mctrl.vhd
+set_global_assignment -name VHDL_FILE rtl/dpram.vhd
+set_global_assignment -name VHDL_FILE rtl/keymatrix.vhd
+set_global_assignment -name VHDL_FILE rtl/video.vhd
+set_global_assignment -name VHDL_FILE rtl/cmt.vhd
+set_global_assignment -name VHDL_FILE rtl/z8420/z8420.vhd
+set_global_assignment -name VHDL_FILE rtl/z8420/Interrupt.vhd
 
 #============================================================
 # Functions
 #============================================================
-set_global_assignment -name VHDL_FILE common/functions.vhd
+set_global_assignment -name VHDL_FILE rtl/functions.vhd
