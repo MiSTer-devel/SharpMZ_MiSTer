@@ -1,12 +1,12 @@
 //=======================================================================================================
 //
-// Name:            emu.sv
+// Name:            sharpmz.sv
 // Created:         June 2018
 // Author(s):       Philip Smart
 // Description:     Sharp MZ series compatible logic.
-//                                                     
-//                  This module is the main bridge between the emulator (sharpmz.vhd) and the MiSTer
-//                  framework (hps_io.v/sys_top.v).
+//
+//                  This module bridges the emulator (sharpmz.vhd) to the modern MiSTer framework.
+//                  The sys/ directory is expected to be the stock Template_MiSTer sys drop-in.
 //
 // Copyright:       (C) 2018 Sorgelig
 //                  (C) 2018 Philip Smart <philip.smart@net2net.org>
@@ -30,156 +30,7 @@
 
 module emu
 (
-	//Master input clock
-	input         CLK_50M,
-
-	//Async reset from top-level module.
-	//Can be used as initial reset.
-	input         RESET,
-
-	//Must be passed to hps_io module
-	inout  [45:0] HPS_BUS,
-
-	//Base video clock. Usually equals to CLK_SYS.
-	output        CLK_VIDEO,
-
-	//Multiple resolutions are supported using different CE_PIXEL rates.
-	//Must be based on CLK_VIDEO
-	output        CE_PIXEL,
-
-	//Video aspect ratio for HDMI. Most retro systems have ratio 4:3.
-	//if VIDEO_ARX[12] or VIDEO_ARY[12] is set then [11:0] contains scaled size instead of aspect ratio.
-	output [12:0] VIDEO_ARX,
-	output [12:0] VIDEO_ARY,
-
-	output  [7:0] VGA_R,
-	output  [7:0] VGA_G,
-	output  [7:0] VGA_B,
-	output        VGA_HS,
-	output        VGA_VS,
-	output        VGA_DE,    // = ~(VBlank | HBlank)
-	output        VGA_F1,
-	output [1:0]  VGA_SL,
-	output        VGA_SCALER, // Force VGA scaler
-
-	input  [11:0] HDMI_WIDTH,
-	input  [11:0] HDMI_HEIGHT,
-	output        HDMI_FREEZE,
-
-`ifdef MISTER_FB
-	// Use framebuffer in DDRAM (USE_FB=1 in qsf)
-	// FB_FORMAT:
-	//    [2:0] : 011=8bpp(palette) 100=16bpp 101=24bpp 110=32bpp
-	//    [3]   : 0=16bits 565 1=16bits 1555
-	//    [4]   : 0=RGB  1=BGR (for 16/24/32 modes)
-	//
-	// FB_STRIDE either 0 (rounded to 256 bytes) or multiple of pixel size (in bytes)
-	output        FB_EN,
-	output  [4:0] FB_FORMAT,
-	output [11:0] FB_WIDTH,
-	output [11:0] FB_HEIGHT,
-	output [31:0] FB_BASE,
-	output [13:0] FB_STRIDE,
-	input         FB_VBL,
-	input         FB_LL,
-	output        FB_FORCE_BLANK,
-
-`ifdef MISTER_FB_PALETTE
-	// Palette control for 8bit modes.
-	// Ignored for other video modes.
-	output        FB_PAL_CLK,
-	output  [7:0] FB_PAL_ADDR,
-	output [23:0] FB_PAL_DOUT,
-	input  [23:0] FB_PAL_DIN,
-	output        FB_PAL_WR,
-`endif
-`endif
-
-	output        LED_USER,  // 1 - ON, 0 - OFF.
-
-	// b[1]: 0 - LED status is system status OR'd with b[0]
-	//       1 - LED status is controled solely by b[0]
-	// hint: supply 2'b00 to let the system control the LED.
-	output  [1:0] LED_POWER,
-	output  [1:0] LED_DISK,
-
-	// I/O board button press simulation (active high)
-	// b[1]: user button
-	// b[0]: osd button
-	output  [1:0] BUTTONS,
-
-	input         CLK_AUDIO, // 24.576 MHz
-	output [15:0] AUDIO_L,
-	output [15:0] AUDIO_R,
-	output        AUDIO_S,   // 1 - signed audio samples, 0 - unsigned
-	output  [1:0] AUDIO_MIX, // 0 - no mix, 1 - 25%, 2 - 50%, 3 - 100% (mono)
-
-	//ADC
-	inout   [3:0] ADC_BUS,
-
-	//SD-SPI
-	output        SD_SCK,
-	output        SD_MOSI,
-	input         SD_MISO,
-	output        SD_CS,
-	input         SD_CD,
-
-	//High latency DDR3 RAM interface
-	//Use for non-critical time purposes
-	output        DDRAM_CLK,
-	input         DDRAM_BUSY,
-	output  [7:0] DDRAM_BURSTCNT,
-	output [28:0] DDRAM_ADDR,
-	input  [63:0] DDRAM_DOUT,
-	input         DDRAM_DOUT_READY,
-	output        DDRAM_RD,
-	output [63:0] DDRAM_DIN,
-	output  [7:0] DDRAM_BE,
-	output        DDRAM_WE,
-
-	//SDRAM interface with lower latency
-	output        SDRAM_CLK,
-	output        SDRAM_CKE,
-	output [12:0] SDRAM_A,
-	output  [1:0] SDRAM_BA,
-	inout  [15:0] SDRAM_DQ,
-	output        SDRAM_DQML,
-	output        SDRAM_DQMH,
-	output        SDRAM_nCS,
-	output        SDRAM_nCAS,
-	output        SDRAM_nRAS,
-	output        SDRAM_nWE,
-
-`ifdef MISTER_DUAL_SDRAM
-	//Secondary SDRAM
-	//Set all output SDRAM_* signals to Z ASAP if SDRAM2_EN is 0
-	input         SDRAM2_EN,
-	output        SDRAM2_CLK,
-	output [12:0] SDRAM2_A,
-	output  [1:0] SDRAM2_BA,
-	inout  [15:0] SDRAM2_DQ,
-	output        SDRAM2_nCS,
-	output        SDRAM2_nCAS,
-	output        SDRAM2_nRAS,
-	output        SDRAM2_nWE,
-`endif
-
-	input         UART_CTS,
-	output        UART_RTS,
-	input         UART_RXD,
-	output        UART_TXD,
-	output        UART_DTR,
-	input         UART_DSR,
-
-	// Open-drain User port.
-	// 0 - D+/RX
-	// 1 - D-/TX
-	// 2..6 - USR2..USR6
-	// Set USER_OUT to 1 to read from USER_IN.
-	input   [6:0] USER_IN,
-	output  [6:0] USER_OUT,
-
-	input         OSD_STATUS
+	`include "sys/emu_ports.vh"
 );
 
 ///////// Default values for ports not used in this core /////////
@@ -189,144 +40,378 @@ assign USER_OUT = '1;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
-assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = '0;  
+assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = '0;
+
+`ifdef MISTER_DUAL_SDRAM
+assign {SDRAM2_DQ, SDRAM2_A, SDRAM2_BA, SDRAM2_CLK, SDRAM2_nWE, SDRAM2_nCAS, SDRAM2_nRAS, SDRAM2_nCS} = 'Z;
+`endif
+
+`ifdef MISTER_FB
+assign FB_EN = 0;
+assign FB_FORMAT = 0;
+assign FB_WIDTH = 0;
+assign FB_HEIGHT = 0;
+assign FB_BASE = 0;
+assign FB_STRIDE = 0;
+assign FB_FORCE_BLANK = 0;
+`ifdef MISTER_FB_PALETTE
+assign FB_PAL_CLK = 0;
+assign FB_PAL_ADDR = 0;
+assign FB_PAL_DOUT = 0;
+assign FB_PAL_WR = 0;
+`endif
+`endif
 
 assign VGA_SL = 0;
 assign VGA_F1 = 0;
 assign VGA_SCALER = 0;
+assign VGA_DISABLE = 0;
 assign HDMI_FREEZE = 0;
-
+assign HDMI_BLACKOUT = 0;
+assign HDMI_BOB_DEINT = 0;
 
 assign LED_DISK = 0;
 assign LED_POWER = 0;
 assign BUTTONS = 0;
 
- 
-assign LED_USER  = ioctl_download;
-assign LED_DISK  = 0;
-assign LED_POWER = 0;
+//////////////////////////////////////////////////////////////////
 
-wire [1:0] ar = status[9:8];
+`include "build_id.v"
 
-assign VIDEO_ARX = (!ar) ? 12'd4 : (ar - 1'd1);
-assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
-
-
-
-
-wire [2:0] scale = status[4:2];
-
-// Menu is handled in the MiSTer c++ program.
-//
-`include "build_id.v" 
 localparam CONF_STR =
 {
-        "SHARP MZ SERIES;;",
-        "J,Fire;",
-	"V,v",`BUILD_DATE 
+	"SharpMZ;;",
+	"-;",
+	"P1,Machine;",
+	"P1O[3:1],Model,MZ80A,MZ80K,MZ80C,MZ1200,MZ700,MZ80B,MZ2000,MZ800;",
+	"P1O[6:4],CPU Speed,Default,+1,+2,+3,+4,+5,+6,+7;",
+	"P1O[30],Boot Reset,Off,On;",
+	"-;",
+	"P2,Tape;",
+	"P2F1,MZF,Load Tape to CMT;",
+	"P2F2,MZF,Load Direct to RAM;",
+	"P2O[25:24],Tape Buttons,Auto,Off,Play,Record;",
+	"P2O[23:21],Fast Tape,Default,Off,2x,4x,8x,16x,32x,Default;",
+	"P2O[27:26],Map Header,Off,Record,Play,Both;",
+	"-;",
+	"P3,Display;",
+	"P3O[8:7],Display Type,Default,Mono 80x25,Colour 40x25,Colour 80x25;",
+	"P3O[10:9],Video Timing,640x480@60,Native,640x480@75,640x480@85;",
+	"P3O[16],Video,On,Off;",
+	"P3O[17],Graphics,On,Off;",
+	"P3O[18],VRAM Wait,Off,On;",
+	"P3O[19],PCG,ROM,RAM;",
+	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
+	"-;",
+	"P4,ROM and RAM;",
+	"P4O[28],User ROM,Off,On;",
+	"P4O[29],FDC ROM,Off,On;",
+	"P4F3,ROMBIN,Load System ROM,0x000000;",
+	"P4F4,ROMBIN,Load System RAM,0x100000;",
+	"P4F5,ROMBIN,Load Keymap,0x200000;",
+	"P4F6,ROMBIN,Load CGROM,0x500000;",
+	"-;",
+	"T[0],Reset;",
+	"R[0],Reset and close OSD;",
+	"J,Fire;",
+	"v,4;",
+	"V,v",`BUILD_DATE
 };
 
 /////////////////  CLOCKS  ////////////////////////
 
 wire clk_sys;
 
-
-
-
 /////////////////  HPS  ///////////////////////////
 
-wire [31:0] status;
-wire  [1:0] buttons;
-
+wire forced_scandoubler;
+wire [1:0] buttons;
+wire [127:0] status;
 wire [10:0] ps2_key;
-wire [24:0] ps2_mouse;
 
-wire        ioctl_download;
-wire        ioctl_upload;
-wire  [7:0] ioctl_index;
-wire        ioctl_wr;
-wire        ioctl_rd;
-wire [24:0] ioctl_addr;
-wire [15:0] ioctl_dout;
-wire [15:0] ioctl_din;
-wire        forced_scandoubler;
+wire        hps_ioctl_download;
+wire        hps_ioctl_upload;
+wire [15:0] hps_ioctl_index;
+wire        hps_ioctl_wr;
+wire        hps_ioctl_rd;
+wire [26:0] hps_ioctl_addr;
+wire  [7:0] hps_ioctl_dout;
+wire  [7:0] hps_ioctl_din;
+wire [31:0] hps_ioctl_file_ext;
 
-hps_io #(.STRLEN(($size(CONF_STR)>>3))) hps_io
-
-//hps_io #(.CONF_STR(CONF_STR)) hps_io
+hps_io #(.CONF_STR(CONF_STR)) hps_io
 (
-    .clk_sys(clk_sys),
-    .HPS_BUS(HPS_BUS),
+	.clk_sys(clk_sys),
+	.HPS_BUS(HPS_BUS),
+	.EXT_BUS(),
+	.gamma_bus(),
 
-    .conf_str(CONF_STR),
+	.buttons(buttons),
+	.status(status),
+	.status_in(128'd0),
+	.status_set(1'b0),
+	.status_menumask(16'd0),
+	.forced_scandoubler(forced_scandoubler),
+	.video_rotated(1'b0),
+	.new_vmode(1'b0),
 
-    .buttons(buttons),
-    .status(status),
-    .forced_scandoubler(forced_scandoubler),
+	.ps2_key(ps2_key),
+	.ps2_kbd_led_status(3'd0),
+	.ps2_kbd_led_use(3'd0),
 
-    .ioctl_download(ioctl_download),
-    .ioctl_upload(ioctl_upload),
-    .ioctl_index(ioctl_index),
-    .ioctl_wr(ioctl_wr),
-    .ioctl_rd(ioctl_rd),
-    .ioctl_addr(ioctl_addr),
-    .ioctl_dout(ioctl_dout),
-    .ioctl_din(ioctl_din),
-    .ioctl_wait(0),
+	.ioctl_download(hps_ioctl_download),
+	.ioctl_upload(hps_ioctl_upload),
+	.ioctl_index(hps_ioctl_index),
+	.ioctl_wr(hps_ioctl_wr),
+	.ioctl_rd(hps_ioctl_rd),
+	.ioctl_addr(hps_ioctl_addr),
+	.ioctl_dout(hps_ioctl_dout),
+	.ioctl_din(hps_ioctl_din),
+	.ioctl_file_ext(hps_ioctl_file_ext),
+	.ioctl_upload_req(1'b0),
+	.ioctl_upload_index(8'd0),
+	.ioctl_wait(1'b0),
 
-    .sd_conf(0),
-    .sd_ack_conf(),
-
-    //.ps2_kbd_led_use(0),
-    //.ps2_kbd_led_status(0),
-
-    .ps2_key(ps2_key),
-    .ps2_mouse(ps2_mouse)
-
-    // unused
-    //.joystick_0(),
-    //.joystick_1(),
-    //.new_vmode(),
-    //.img_mounted(),
-    //.img_readonly(),
-    //.img_size(),
-    //.sd_lba(),
-    //.sd_rd(),
-    //.sd_wr(),
-    //.sd_ack(),
-    //.sd_buff_addr(),
-    //.sd_buff_dout(),
-    //.sd_buff_din(),
-    //.sd_buff_wr(),
-    //.ps2_kbd_clk_out(),
-    //.ps2_kbd_data_out(),
-    //.ps2_kbd_clk_in(),
-    //.ps2_kbd_data_in(),
-    //.ps2_mouse_clk_out(),
-    //.ps2_mouse_data_out(),
-    //.ps2_mouse_data_in(),
-    //.ps2_mouse_clk_in(),
-    //.joystick_analog_0(),
-    //.joystick_analog_1(),
-    //.RTC(),
-    //.TIMESTAMP()
+	.info_req(1'b0),
+	.info(8'd0)
 );
+
+/////////////////  CONFIG ADAPTER  ////////////////
+
+function automatic [2:0] mz_model_code(input [2:0] menu_sel);
+	begin
+		case(menu_sel)
+			3'd0: mz_model_code = 3'd3; // MZ80A
+			3'd1: mz_model_code = 3'd0; // MZ80K
+			3'd2: mz_model_code = 3'd1; // MZ80C
+			3'd3: mz_model_code = 3'd2; // MZ1200
+			3'd4: mz_model_code = 3'd4; // MZ700
+			3'd5: mz_model_code = 3'd6; // MZ80B
+			3'd6: mz_model_code = 3'd7; // MZ2000
+			default: mz_model_code = 3'd5; // MZ800
+		endcase
+	end
+endfunction
+
+function automatic [2:0] mz_display_type(input [1:0] menu_sel, input [2:0] model);
+	begin
+		case(menu_sel)
+			2'd0: begin
+				case(model)
+					3'd4,
+					3'd5: mz_display_type = 3'd2; // MZ700/MZ800 default to colour 40x25.
+					3'd6,
+					3'd7: mz_display_type = 3'd1; // MZ80B/MZ2000 default to mono 80x25.
+					default: mz_display_type = 3'd0; // MZ80K/C/1200/A default to mono 40x25.
+				endcase
+			end
+			2'd1: mz_display_type = 3'd1; // Mono 80x25.
+			2'd2: mz_display_type = 3'd2; // Colour 40x25.
+			default: mz_display_type = 3'd3; // Colour 80x25.
+		endcase
+	end
+endfunction
+
+function automatic [1:0] mz_video_timing(input [1:0] menu_sel);
+	begin
+		case(menu_sel)
+			2'd0: mz_video_timing = 2'b01; // 640x480@60
+			2'd1: mz_video_timing = 2'b11; // Native machine timing.
+			2'd2: mz_video_timing = 2'b10; // 640x480@75
+			default: mz_video_timing = 2'b00; // 640x480@85
+		endcase
+	end
+endfunction
+
+function automatic [1:0] mz_tape_buttons(input [1:0] menu_sel);
+	begin
+		case(menu_sel)
+			2'd0: mz_tape_buttons = 2'b11; // Auto.
+			2'd1: mz_tape_buttons = 2'b00; // Off.
+			2'd2: mz_tape_buttons = 2'b01; // Play.
+			default: mz_tape_buttons = 2'b10; // Record.
+		endcase
+	end
+endfunction
+
+function automatic [2:0] mz_fast_tape(input [2:0] menu_sel);
+	begin
+		case(menu_sel)
+			3'd0: mz_fast_tape = 3'b110; // Core default.
+			3'd1: mz_fast_tape = 3'b000; // Off/original speed.
+			3'd2: mz_fast_tape = 3'b001; // 2x.
+			3'd3: mz_fast_tape = 3'b010; // 4x.
+			3'd4: mz_fast_tape = 3'b011; // 8x.
+			3'd5: mz_fast_tape = 3'b100; // 16x.
+			3'd6: mz_fast_tape = 3'b101; // 32x where supported.
+			default: mz_fast_tape = 3'b110; // Core default.
+		endcase
+	end
+endfunction
+
+wire [2:0] cfg_model = mz_model_code(status[3:1]);
+wire [2:0] cfg_display = mz_display_type(status[8:7], cfg_model);
+wire [1:0] cfg_vmode = mz_video_timing(status[10:9]);
+wire [1:0] cfg_tape_buttons = mz_tape_buttons(status[25:24]);
+wire [2:0] cfg_fast_tape = mz_fast_tape(status[23:21]);
+wire [7:0] cfg_userrom = status[28] ? (8'd1 << cfg_model) : 8'd0;
+wire [7:0] cfg_fdcrom  = status[29] ? (8'd1 << cfg_model) : 8'd0;
+
+wire [7:0] cfg_reg0_model   = {5'd0, cfg_model};
+wire [7:0] cfg_reg1_display = {status[19], status[18], status[17], status[16], 1'b0, cfg_display};
+wire [7:0] cfg_reg2_display = {5'd0, cfg_vmode};
+wire [7:0] cfg_reg3_display = 8'd0;
+wire [7:0] cfg_reg4_cpu     = {status[30], 4'd0, status[6:4]};
+wire [7:0] cfg_reg5_audio   = {7'd0, status[20]};
+wire [7:0] cfg_reg6_cmt     = {1'b0, status[27], status[26], cfg_tape_buttons, cfg_fast_tape};
+wire [7:0] cfg_reg8_userrom = cfg_userrom;
+wire [7:0] cfg_reg9_fdcrom  = cfg_fdcrom;
+
+wire [71:0] cfg_pack = {
+	cfg_reg9_fdcrom,
+	cfg_reg8_userrom,
+	cfg_reg6_cmt,
+	cfg_reg5_audio,
+	cfg_reg4_cpu,
+	cfg_reg3_display,
+	cfg_reg2_display,
+	cfg_reg1_display,
+	cfg_reg0_model
+};
+
+reg [71:0] cfg_pack_shadow = ~72'd0;
+reg [3:0] cfg_step = 0;
+reg cfg_active = 0;
+reg cfg_wr = 0;
+reg [24:0] cfg_addr = 0;
+reg [15:0] cfg_dout = 0;
+
+wire hps_ioctl_active = hps_ioctl_download | hps_ioctl_upload | hps_ioctl_wr | hps_ioctl_rd;
+
+always @(posedge clk_sys) begin
+	cfg_wr <= 0;
+
+	if(RESET) begin
+		cfg_active <= 0;
+		cfg_step <= 0;
+		cfg_pack_shadow <= ~72'd0;
+	end
+	else if(!cfg_active && (cfg_pack != cfg_pack_shadow) && !hps_ioctl_active) begin
+		cfg_active <= 1;
+		cfg_step <= 0;
+	end
+	else if(cfg_active && !hps_ioctl_active) begin
+		cfg_wr <= 1;
+		case(cfg_step)
+			4'd0: begin cfg_addr <= 25'h1000000; cfg_dout <= {8'd0, cfg_reg0_model};   end
+			4'd1: begin cfg_addr <= 25'h1000001; cfg_dout <= {8'd0, cfg_reg1_display}; end
+			4'd2: begin cfg_addr <= 25'h1000002; cfg_dout <= {8'd0, cfg_reg2_display}; end
+			4'd3: begin cfg_addr <= 25'h1000003; cfg_dout <= {8'd0, cfg_reg3_display}; end
+			4'd4: begin cfg_addr <= 25'h1000004; cfg_dout <= {8'd0, cfg_reg4_cpu};     end
+			4'd5: begin cfg_addr <= 25'h1000005; cfg_dout <= {8'd0, cfg_reg5_audio};   end
+			4'd6: begin cfg_addr <= 25'h1000006; cfg_dout <= {8'd0, cfg_reg6_cmt};     end
+			4'd7: begin cfg_addr <= 25'h1000008; cfg_dout <= {8'd0, cfg_reg8_userrom}; end
+			default: begin cfg_addr <= 25'h1000009; cfg_dout <= {8'd0, cfg_reg9_fdcrom}; end
+		endcase
+
+		if(cfg_step == 4'd8) begin
+			cfg_active <= 0;
+			cfg_pack_shadow <= cfg_pack;
+		end
+		else begin
+			cfg_step <= cfg_step + 1'd1;
+		end
+	end
+end
+
+/////////////////  DOWNLOAD ROUTING  //////////////
+
+localparam [5:0] FILE_TAPE_CMT    = 6'd1;
+localparam [5:0] FILE_TAPE_DIRECT = 6'd2;
+localparam [24:0] IOCTL_SYSRAM_BASE = 25'h0100000;
+
+reg hps_ioctl_download_d = 0;
+reg [5:0] active_file_slot = 0;
+reg [15:0] mzf_size = 0;
+reg [15:0] mzf_load_addr = 0;
+reg [7:0] direct_load_reset_ctr = 0;
+
+always @(posedge clk_sys) begin
+	hps_ioctl_download_d <= hps_ioctl_download;
+
+	if(!hps_ioctl_download_d && hps_ioctl_download) begin
+		active_file_slot <= hps_ioctl_index[5:0];
+		mzf_size <= 0;
+		mzf_load_addr <= 0;
+	end
+
+	if(hps_ioctl_download_d && !hps_ioctl_download && active_file_slot == FILE_TAPE_DIRECT) begin
+		direct_load_reset_ctr <= 8'd64;
+	end
+	else if(direct_load_reset_ctr != 0) begin
+		direct_load_reset_ctr <= direct_load_reset_ctr - 1'd1;
+	end
+
+	if(hps_ioctl_download && hps_ioctl_wr && active_file_slot == FILE_TAPE_DIRECT) begin
+		case(hps_ioctl_addr)
+			27'd18: mzf_size[7:0] <= hps_ioctl_dout;
+			27'd19: mzf_size[15:8] <= hps_ioctl_dout;
+			27'd20: mzf_load_addr[7:0] <= hps_ioctl_dout;
+			27'd21: mzf_load_addr[15:8] <= hps_ioctl_dout;
+			default: begin end
+		endcase
+	end
+end
+
+wire        direct_load_active = hps_ioctl_download && active_file_slot == FILE_TAPE_DIRECT;
+wire [26:0] mzf_direct_end = 27'd128 + {11'd0, mzf_size};
+wire        mzf_direct_wr_valid = active_file_slot != FILE_TAPE_DIRECT ||
+                                  hps_ioctl_addr < 27'd128 ||
+                                  mzf_size == 16'd0 ||
+                                  hps_ioctl_addr < mzf_direct_end;
+
+function automatic [24:0] mz_ioctl_addr_map(
+	input [5:0] slot,
+	input [26:0] addr,
+	input [15:0] load_addr
+);
+	begin
+		case(slot)
+			FILE_TAPE_CMT:
+				mz_ioctl_addr_map = (addr < 27'd128) ? (25'h0400000 + addr[24:0])
+				                                      : (25'h0410000 + (addr[24:0] - 25'd128));
+			FILE_TAPE_DIRECT:
+				mz_ioctl_addr_map = (addr < 27'd128) ? (IOCTL_SYSRAM_BASE + 25'h0010F0 + addr[24:0])
+				                                      : (IOCTL_SYSRAM_BASE + {9'd0, load_addr} + (addr[24:0] - 25'd128));
+			default:
+				mz_ioctl_addr_map = addr[24:0];
+		endcase
+	end
+endfunction
+
+wire [24:0] hps_ioctl_addr_mapped = mz_ioctl_addr_map(active_file_slot, hps_ioctl_addr, mzf_load_addr);
+
+wire        bridge_ioctl_wr   = cfg_wr ? 1'b1  : (hps_ioctl_wr && mzf_direct_wr_valid);
+wire        bridge_ioctl_rd   = cfg_wr ? 1'b0  : hps_ioctl_rd;
+wire [24:0] bridge_ioctl_addr = cfg_wr ? cfg_addr : hps_ioctl_addr_mapped;
+wire [15:0] bridge_ioctl_dout = cfg_wr ? cfg_dout : {8'd0, hps_ioctl_dout};
+wire [15:0] bridge_ioctl_din;
+
+assign hps_ioctl_din = bridge_ioctl_din[7:0];
 
 /////////////////  RESET  /////////////////////////
 
-//wire reset = RESET | status[0] | buttons[1] | status[6] | ioctl_download;
 wire reset = RESET;
-wire warm_reset = status[0] | buttons[1]; //| ioctl_download;
+wire warm_reset = status[0] | buttons[1] | direct_load_active | (direct_load_reset_ctr != 0);
 
 ////////////////  Machine  ////////////////////////
 
-wire [7:0] audio_l_emu;
-wire [7:0] audio_r_emu;
-assign AUDIO_L = {audio_l_emu,8'd0};
-assign AUDIO_R = {audio_r_emu,8'd0};
+wire audio_l_emu;
+wire audio_r_emu;
+assign AUDIO_L = {audio_l_emu, 15'd0};
+assign AUDIO_R = {audio_r_emu, 15'd0};
 assign AUDIO_S = 1;
 assign AUDIO_MIX = 0;
-
 
 wire clk_video_in;
 wire [7:0] R_emu;
@@ -336,119 +421,81 @@ wire hblank_emu;
 wire vblank_emu;
 wire hsync_emu;
 wire vsync_emu;
+wire [7:0] main_leds;
+wire bridge_uart_tx;
+wire bridge_sd_sck;
+wire bridge_sd_mosi;
+wire bridge_sd_cs;
+wire bridge_sd_cd;
 
 bridge sharp_mz
 (
-        // Clocks Input to Emulator.
-        .clkmaster(CLK_50M),
+	// Clocks Input to Emulator.
+	.clkmaster(CLK_50M),
 
-        // System clock.
-        .clksys(clk_sys),
+	// System clock.
+	.clksys(clk_sys),
 
-        // Clocks output by the emulator.
-        .clkvid(clk_video_in),
-        //.cepix(cepix),
+	// Clocks output by the emulator.
+	.clkvid(clk_video_in),
 
-        // Reset
-        .cold_reset(reset),
-        .warm_reset(warm_reset),
+	// Reset
+	.cold_reset(reset),
+	.warm_reset(warm_reset),
 
-        // LED on MB
-        .main_leds(LED_MB),
+	// LED on MB
+	.main_leds(main_leds),
 
-        // PS2 via USB.
-        .ps2_key(ps2_key),
+	// PS2 via USB.
+	.ps2_key(ps2_key),
 
-        // VGA on IO daughter card.
-        .vga_hb_o(hblank_emu),
-        .vga_vb_o(vblank_emu),
-        .vga_hs_o(hsync_emu),
-        .vga_vs_o(vsync_emu),
-        .vga_r_o(R_emu),
-        .vga_g_o(G_emu),
-        .vga_b_o(B_emu),
+	// VGA on IO daughter card.
+	.vga_hb_o(hblank_emu),
+	.vga_vb_o(vblank_emu),
+	.vga_hs_o(hsync_emu),
+	.vga_vs_o(vsync_emu),
+	.vga_r_o(R_emu),
+	.vga_g_o(G_emu),
+	.vga_b_o(B_emu),
 
-        // AUDIO on IO daughter card.
-        .audio_l_o(audio_l_emu),
-        .audio_r_o(audio_r_emu),
+	// AUDIO on IO daughter card.
+	.audio_l_o(audio_l_emu),
+	.audio_r_o(audio_r_emu),
 
-        .uart_rx(UART_RX),
-        .uart_tx(UART_TX),
-        .sd_sck(SD_SCK),
-        .sd_mosi(SD_MOSI),
-        .sd_miso(SD_MISO),
-        .sd_cs(SD_CS),
-        .sd_cd(SD_CD),
+	.uart_rx(UART_RXD),
+	.uart_tx(bridge_uart_tx),
+	.sd_sck(bridge_sd_sck),
+	.sd_mosi(bridge_sd_mosi),
+	.sd_miso(SD_MISO),
+	.sd_cs(bridge_sd_cs),
+	.sd_cd(bridge_sd_cd),
 
-        // HPS Interface
-        .ioctl_download(ioctl_download),                                        // HPS Downloading to FPGA.
-        .ioctl_upload(ioctl_upload),                                            // HPS Uploading from FPGA.
-        .ioctl_clk(clk_sys),                                                    // HPS I/O Clock.
-        .ioctl_wr(ioctl_wr),                                                    // HPS Write Enable to FPGA.
-        .ioctl_rd(ioctl_rd),                                                    // HPS Read Enable from FPGA.
-        .ioctl_addr(ioctl_addr),                                                // HPS Address in FPGA to write into.
-        .ioctl_dout(ioctl_dout),                                                // HPS Data to be written into FPGA.
-        .ioctl_din(ioctl_din)                                                   // HPS Data to be read into HPS.
+	// HPS Interface
+	.ioctl_download(hps_ioctl_download),
+	.ioctl_upload(hps_ioctl_upload),
+	.ioctl_clk(clk_sys),
+	.ioctl_wr(bridge_ioctl_wr),
+	.ioctl_rd(bridge_ioctl_rd),
+	.ioctl_addr(bridge_ioctl_addr),
+	.ioctl_dout(bridge_ioctl_dout),
+	.ioctl_din(bridge_ioctl_din)
 );
 
-// If ce_pix is same as pixel clock, uncomment below and remove CE_PIXEL from .ce_pix_out below.
-//
-//assign CE_PIXEL=1;
+assign LED_USER = hps_ioctl_download;
+
 assign CLK_VIDEO = clk_sys;
-//assign CLK_VIDEO = clk_video_in;
 assign CE_PIXEL  = clk_video_in;
 
-
-assign VGA_R = R_emu;
-assign VGA_G = G_emu;
-assign VGA_B = B_emu;
+assign VGA_R  = R_emu;
+assign VGA_G  = G_emu;
+assign VGA_B  = B_emu;
 assign VGA_VS = vsync_emu;
 assign VGA_HS = hsync_emu;
 assign VGA_DE = ~(vblank_emu | hblank_emu);
 
-//video_mixer #(.HALF_DEPTH(0)) video_mixer
-//video_mixer #(.LINE_LENGTH(320), .HALF_DEPTH(1)) video_mixer
-//(
-//    .clk_sys(clk_sys),
-//    .ce_pix(clk_video_in),                                                      // Video pixel clock from core.
-//    //.ce_pix_out(CE_PIXEL),
-//
-//    .scanlines({scale == 4, scale == 3, scale == 2}),
-//    .scandoubler(scale || forced_scandoubler),
-//    .hq2x(scale==1),
-//
-//    .mono(0),
-//
-//    // Input signals into the mixer, originating from the emulator.
-//    .R(R_emu),
-//    .G(G_emu),
-//    .B(B_emu),
-//
-//    // Positive pulses.
-//    .HSync(hsync_emu),
-//    .VSync(vsync_emu),
-//    .HBlank(hblank_emu),
-//    .VBlank(vblank_emu),
-//
-//    .VGA_R(VGA_R),
-//    .VGA_G(VGA_G),
-//    .VGA_B(VGA_B),
-//    .VGA_VS(VGA_VS),
-//    .VGA_HS(VGA_HS),
-//    .VGA_DE(VGA_DE)
-//
-//    // Outputs of the mixer are bound to the VGA_x signals defined in the sys_top module and passed into this module as parameters.
-//    // These signals then feed the vga_osd -> vga_out modules in systop.v
-//);
+wire [1:0] ar = status[122:121];
 
-// Uncomment below and comment out video_mixer to pass original signal to sys_top.v. 
-// To output original signal, edit sys_top.v and comment out vga_osd and vga_out, uncomment the assign statements.
-//
-//assign VGA_R = R_emu;
-//assign VGA_G = G_emu;
-//assign VGA_B = B_emu;
-//assign VGA_HS = hsync_emu;
-//assign VGA_VS = vsync_emu;
-//assign VGA_DE = ~(vblank_emu | hblank_emu);
+assign VIDEO_ARX = (!ar) ? 12'd4 : (ar - 1'd1);
+assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 
 endmodule

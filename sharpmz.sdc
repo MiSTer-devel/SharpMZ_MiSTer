@@ -196,3 +196,100 @@ set_time_format -unit ns -decimal_places 3
 # Set Input Transition
 #**************************************************************
 
+
+#**************************************************************
+# Active MiSTer framework migration constraints
+#**************************************************************
+
+# The modern stock sys tree expects the core clock to come from the usual
+# top-level "pll" instance. SharpMZ keeps its original PLLs inside clkgen, so
+# keep the framework domains decoupled from the legacy core domains here.
+set sharpmz_core_clocks [get_clocks -nowarn {
+    *|CLKGEN0|PLLMAIN*|altera_pll_i|*|divclk
+}]
+
+set framework_clocks [get_clocks -nowarn {
+    FPGA_CLK1_50
+    FPGA_CLK2_50
+    FPGA_CLK3_50
+    *|h2f_user0_clk
+    spi_sck
+    hdmi_sck
+    pll_hdmi|pll_hdmi_inst|altera_pll_i|*|divclk
+    pll_audio|pll_audio_inst|altera_pll_i|*|divclk
+}]
+
+if {[llength $sharpmz_core_clocks] && [llength $framework_clocks]} {
+    set_false_path -from $sharpmz_core_clocks -to $framework_clocks
+    set_false_path -from $framework_clocks -to $sharpmz_core_clocks
+}
+
+# The old clkgen block derives the core master clock, then samples/muxes a set
+# of auxiliary PLL outputs to make legacy enables and peripheral clocks.
+set sharpmz_master_clock [get_clocks -nowarn {
+    *|CLKGEN0|PLLMAIN02|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk
+}]
+
+set sharpmz_aux_clocks [get_clocks -nowarn {
+    *|CLKGEN0|PLLMAIN01|altera_pll_i|*|divclk
+    *|CLKGEN0|PLLMAIN02|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk
+    *|CLKGEN0|PLLMAIN02|altera_pll_i|general[2].gpll~PLL_OUTPUT_COUNTER|divclk
+    *|CLKGEN0|PLLMAIN02|altera_pll_i|general[3].gpll~PLL_OUTPUT_COUNTER|divclk
+    *|CLKGEN0|PLLMAIN02|altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER|divclk
+    *|CLKGEN0|PLLMAIN03|altera_pll_i|*|divclk
+}]
+
+if {[llength $sharpmz_master_clock] && [llength $sharpmz_aux_clocks]} {
+    set_false_path -from $sharpmz_master_clock -to $sharpmz_aux_clocks
+    set_false_path -from $sharpmz_aux_clocks -to $sharpmz_master_clock
+}
+
+# clkgen intentionally samples selectable generated clocks as data to create
+# clock-enable pulses in the 56.75 MHz master domain.
+set clkgen_edge_regs [get_registers -nowarn {
+    *|CLKGEN0|CPUEDGE*
+    *|CLKGEN0|VIDEOEDGE*
+    *|CLKGEN0|LEDSEDGE*
+    *|CLKGEN0|PEREDGE*
+}]
+
+if {[llength $clkgen_edge_regs]} {
+    set_false_path -to $clkgen_edge_regs
+}
+
+# These are legacy clock outputs selected or divided inside clkgen and used as
+# data/control sources elsewhere. They are not one-cycle datapaths into the
+# 56.75 MHz master clock domain.
+set clkgen_muxed_clock_regs [get_registers -nowarn {
+    *|CLKGEN0|CKSOUNDi
+    *|CLKGEN0|CKVIDEOi
+    *|CLKGEN0|CKRTCi
+}]
+
+if {[llength $clkgen_muxed_clock_regs]} {
+    set_false_path -to $clkgen_muxed_clock_regs
+}
+
+# OSD-driven clock/debug mode fields can change at human/UI speed and feed the
+# legacy clock generator's muxing. Do not make TimeQuest close those as fixed
+# synchronous datapaths.
+set clkgen_mode_regs [get_registers -nowarn {
+    *|CTRL0|CONFIG*
+    *|CTRL0|DEBUG*
+}]
+
+set clkgen_regs [get_registers -nowarn {*|CLKGEN0|*}]
+
+if {[llength $clkgen_mode_regs] && [llength $clkgen_regs]} {
+    set_false_path -from $clkgen_mode_regs -to $clkgen_regs
+}
+
+# Framework reset requests are consumed by the old VHDL as asynchronous resets.
+set framework_reset_regs [get_registers -nowarn {
+    reset_req
+    sysmem|init_reset_n
+}]
+
+if {[llength $framework_reset_regs]} {
+    set_false_path -from $framework_reset_regs
+}

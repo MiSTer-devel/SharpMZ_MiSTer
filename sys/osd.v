@@ -26,7 +26,7 @@ parameter  OSD_COLOR    =  3'd4;
 localparam OSD_WIDTH    = 12'd256;
 localparam OSD_HEIGHT   = 12'd64;
 
-`ifdef OSD_HEADER
+`ifdef MENU_CORE
 localparam OSD_HDR      = 12'd24;
 `else
 localparam OSD_HDR      = 12'd0;
@@ -131,7 +131,7 @@ wire [21:0] osd_h_hdr = (info || rot) ? osd_h : (osd_h + OSD_HDR);
 
 // pipeline the comparisons a bit
 always @(posedge clk_video) if(ce_pix) begin
-	v_cnt_h <= v_cnt < osd_t;
+	v_cnt_h <= v_cnt <= osd_t;
 	v_cnt_1 <= v_cnt < 320;
 	v_cnt_2 <= v_cnt < 640;
 	v_cnt_3 <= v_cnt < 960;
