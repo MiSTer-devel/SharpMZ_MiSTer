@@ -15,7 +15,7 @@ writes back to them.
 usage: mister_test.py [--host mister.local] [--rbf output_files/sharpmz.rbf] [--only T03,T08]
                       [--out out/mister] [--no-deploy]
 """
-import argparse, datetime, hashlib, json, os, socket, subprocess, sys, time, urllib.request
+import argparse, datetime, hashlib, json, os, shutil, socket, subprocess, sys, time, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SW = os.path.join(ROOT, 'software')
@@ -506,7 +506,7 @@ def menu_name(t):
     name = ' '.join(name.split())[:70].rstrip(' ,.-')
     if keys:
         hint = ', then '.join(k.strip() for k in keys)[:40]
-        name += ' (type ' + ''.join(' ' if c in '\\/:*?"<>|' else c for c in hint).strip() + ')'
+        name += ' (type ' + ' '.join(''.join(c if c.isalnum() or c in " -+.,()&" else ' ' for c in hint).split()) + ')'
     return name + '.mgl'
 
 
@@ -619,7 +619,7 @@ def main():
         for t in tests:
             name = menu_name(t)
             local = os.path.join(stage_menu, name)
-            sh(f'cp "{os.path.join(stage, t["name"] + ".mgl")}" "{local}"')
+            shutil.copyfile(os.path.join(stage, t["name"] + ".mgl"), local)
             m.put(local, f'{MENU}/{name}')
             steps = os.path.join(stage_menu, t['name'] + '.steps')
             open(steps, 'w').write(steps_file(t))
