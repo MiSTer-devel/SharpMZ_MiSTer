@@ -18,10 +18,19 @@ FF means no key. In the MZ-80K/80C/1200/80A banks bit 3 also presses SHIFT (keym
    and /, right CTRL) gets the entry of its non-extended twin. keymatrix.vhd used to drop the
    extended flag, so these keys only ever reached the twin's entry; this keeps them working now
    that the flag is used.
+4. MZ-1200: it runs SP-1002, the MZ-80K monitor, so it gets the MZ-80K bank (it had the MZ-80A's, and no
+   key typed what it said).
+5. The MIF is 8192 entries: 0000-07FF this Sharp layout (by position); 1000-17FF and 1800-1FFF the PC
+   layout, for the PC's SHIFT up and down (OSD Keyboard Layout: PC, the default). A PC layout entry's
+   bit 3 is the SHIFT the machine needs; keymatrix.vhd forces the machine's SHIFT to it while the key
+   is down. The characters come from tools/keymap_pc_chars.json (bank -> character -> [matrix position,
+   shift], made by tools/keymap_measure.py from what each model's monitor or BASIC prints); a PC key
+   whose character a model doesn't have does nothing, and other keys (letters, Return, cursor keys,
+   function keys) keep their Sharp layout entry with SHIFT passed through.
 
 usage: fix_keymap.py ROMDIR MIFDIR
 """
-import sys
+import json, os, sys
 
 romdir, mifdir = sys.argv[1], sys.argv[2]
 BANK = {'MZ80K': 0, 'MZ80C': 1, 'MZ1200': 2, 'MZ80A': 3, 'MZ700': 4, 'MZ800': 5}
@@ -131,10 +140,11 @@ MZ80K = {
 TWINS = [0x69, 0x6B, 0x6C, 0x70, 0x71, 0x72, 0x74, 0x75, 0x7A, 0x7D, 0x4A, 0x5A, 0x14, 0x11]
 
 rom = bytearray(open(f"{romdir}/combined_keymap.rom", "rb").read())
-for model, table in (('MZ80K', MZ80K), ('MZ80C', MZ80K), ('MZ1200', MZ80A), ('MZ80A', MZ80A), ('MZ700', MZ700), ('MZ800', MZ800)):
+for model, table in (('MZ80K', MZ80K), ('MZ80C', MZ80K), ('MZ80A', MZ80A), ('MZ700', MZ700), ('MZ800', MZ800)):
     base = BANK[model] * 256
     for code, val in table.items():
         rom[base + code] = val
+rom[BANK['MZ1200'] * 256:BANK['MZ1200'] * 256 + 256] = rom[0:256]       # MZ-1200: the MZ-80K bank (SP-1002)
 # The keyboard's AA (self test passed) reads entry EF; banks 0-3 had EF there, which is bit 3 (SHIFT) now.
 for bank in range(4):
     rom[bank * 256 + 0xEF] = 0xFF
@@ -145,8 +155,38 @@ for bank in range(8):
             rom[base + EXT + c] = rom[base + c]
 
 open(f"{romdir}/combined_keymap.rom", "wb").write(rom)
+
+# PC layout: the US legend of each character key, unshifted and shifted (the keypad with Num Lock on).
+PC_KEYS = {0x0E: '`~', 0x16: '1!', 0x1E: '2@', 0x26: '3#', 0x25: '4$', 0x2E: '5%', 0x36: '6^', 0x3D: '7&',
+           0x3E: '8*', 0x46: '9(', 0x45: '0)', 0x4E: '-_', 0x55: '=+', 0x54: '[{', 0x5B: ']}', 0x5D: '\\|',
+           0x4C: ';:', 0x52: '\'"', 0x41: ',<', 0x49: '.>', 0x4A: '/?',
+           EXT | 0x4A: '/', 0x7C: '*', 0x7B: '-', 0x79: '+', 0x71: '.', 0x70: '0', 0x69: '1', 0x72: '2',
+           0x7A: '3', 0x6B: '4', 0x73: '5', 0x74: '6', 0x6C: '7', 0x75: '8', 0x7D: '9'}
+cpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'keymap_pc_chars.json')
+chars = json.load(open(cpath)) if os.path.exists(cpath) else {}
+pc = [bytearray([0xFF] * 2048), bytearray([0xFF] * 2048)]
+for bank in range(8):
+    have = chars.get(str(bank), {})
+    for code in range(256):
+        sharp = rom[bank * 256 + code]
+        for sh in (0, 1):
+            legend = PC_KEYS.get(code, '')
+            ch = legend[sh] if sh < len(legend) else (legend[0] if legend and sh == 1 and code >= 0x69 else '')
+            if code in (0x12, 0x59):
+                e = sharp                                       # the SHIFT keys themselves
+            elif ch and len(legend) == 2:
+                e = have[ch][0] | (have[ch][1] << 3) if ch in have else 0xFF
+            elif ch and ch in have:
+                e = have[ch][0] | (have[ch][1] << 3)            # keypad
+            elif sharp == 0xFF:
+                e = 0xFF
+            else:                                               # pass SHIFT through (keeping an entry's own SHIFT)
+                own = bank < 4 and sharp & SHIFT
+                e = (sharp & ~SHIFT & 0xFF) | (SHIFT if (own or sh) else 0)
+            pc[sh][bank * 256 + code] = e
+mif = rom + bytearray([0xFF] * 2048) + pc[0] + pc[1]
 with open(f"{mifdir}/combined_keymap.mif", "w") as f:
-    f.write(f"DEPTH = {len(rom)};\nWIDTH = 8;\nADDRESS_RADIX = HEX;\nDATA_RADIX = HEX;\nCONTENT BEGIN\n")
-    for a in range(0, len(rom), 16):
-        f.write(f"{a:04x}: " + " ".join(f"{b:02x}" for b in rom[a:a + 16]) + ";\n")
+    f.write(f"DEPTH = {len(mif)};\nWIDTH = 8;\nADDRESS_RADIX = HEX;\nDATA_RADIX = HEX;\nCONTENT BEGIN\n")
+    for a in range(0, len(mif), 16):
+        f.write(f"{a:04x}: " + " ".join(f"{b:02x}" for b in mif[a:a + 16]) + ";\n")
     f.write("END;\n")

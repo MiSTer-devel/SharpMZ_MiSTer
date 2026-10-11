@@ -41,6 +41,7 @@ module top(
    input  [10:0] ps2_key,
    input  [5:0]  joy0,           // joystick 1, MiSTer order (5 fire 2, 4 fire 1, 3 up, 2 down, 1 left, 0 right)
    input         joy_1x03,       // MZ-1X03 joysticks connected (MZ-700/1500)
+   input         key_sharp,      // OSD Keyboard Layout: 0 PC, 1 Sharp (by position)
    input         ramdisk_en,     // MZ-800 64 KB RAM disk
    input         prn_en,         // printer (OSD Printer: UART)
    input  [31:0] prn_baud,       // uart_speed from Main
@@ -275,6 +276,7 @@ module top(
       .JOY0           (joy0),
       .JOY1           (6'd0),
       .JOY_1X03       (joy_1x03),
+      .KEY_SHARP      (key_sharp),
       .RAMDISK_EN     (ramdisk_en),
       .TAPEDATA_ADDR  (tapedata_addr),
       .TAPEDATA_DOUT  (tapedata_wdata),

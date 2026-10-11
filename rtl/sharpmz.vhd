@@ -95,6 +95,7 @@ entity sharpmz is
         JOY0                  : in     std_logic_vector(5 downto 0) := (others => '0');  -- MiSTer order: 5 fire 2, 4 fire 1, 3 up, 2 down, 1 left, 0 right.
         JOY1                  : in     std_logic_vector(5 downto 0) := (others => '0');
         JOY_1X03              : in     std_logic := '0';                        -- MZ-700/1500: MZ-1X03 joysticks connected.
+        KEY_SHARP             : in     std_logic := '0';                        -- OSD Keyboard Layout: 0 PC, 1 Sharp (by position).
         RAMDISK_EN            : in     std_logic := '0';                        -- MZ-800: 64 KB RAM disk board.
         PRN_EN                : in     std_logic := '0';                        -- Printer connected (OSD Printer: UART).
         PRN_RDA               : in     std_logic := '0';                        -- Printer busy / acknowledge.
@@ -496,6 +497,7 @@ component keymatrix
 
         -- PS/2 Keyboard Data
         PS2_KEY              : in  std_logic_vector(10 downto 0);        -- PS2 Key data.
+        KEY_SHARP            : in  std_logic;
 
         -- Different operations modes.
         CONFIG               : in  std_logic_vector(CONFIG_WIDTH);
@@ -972,6 +974,7 @@ begin
 
             -- PS/2 Keyboard Data
             PS2_KEY          => MZ_PS2_KEY,                              -- PS2 Key data.
+            KEY_SHARP        => KEY_SHARP,
 
             -- Different operations modes.
             CONFIG           => CONFIG,

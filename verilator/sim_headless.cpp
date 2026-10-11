@@ -56,12 +56,15 @@ struct Options {
     uint32_t mzf_frame = 0;                  // --mzf-frame N: Load Tape to CMT at frame N (as an MGL does, after boot)
     std::vector<TypeCmd> types;
     uint32_t type_press = 3, type_release = 3;
+    uint32_t shift_lead = 0;                 // --shift-lead N: a shifted character presses SHIFT N frames before its key
+    bool     key_sharp = true;               // --key-layout pc|sharp (the core's default is PC; the tests type by position)
     std::set<uint32_t> screenshots;
     bool     dump_range = false;
     uint32_t dump_from = 0, dump_to = 0, dump_every = 0;
     std::string out_dir = "out";
     std::string frame_log;
     bool     ascii_end = false;
+    std::string vram_dump;                   // --vram-dump FILE: raw video RAM (4 KB) at exit
     int      ascii_cols = 40;
     std::vector<MemDump> memdumps;
     std::string printer;                     // --printer FILE: bytes the printer port sends out of the UART
@@ -137,11 +140,14 @@ static void usage()
 "  --type-rate P:R        frames per key press:release (default 3:3)\n"
 "Images and logs:\n"
 "  --screenshot N         PNG of frame N (repeatable)\n"
+"  --key-layout pc|sharp  OSD Keyboard Layout (default sharp, by position; the core defaults to pc)\n"
+"  --shift-lead N         --type presses SHIFT N frames before a shifted character's key (default 0)\n"
 "  --dump-frames A:B      PNG of every frame A..B\n"
 "  --dump-every K         PNG of every Kth frame\n"
 "  --out DIR              output directory (default ./out)\n"
 "  --frame-log FILE       frame,fb_hash,cpu_cycles,pc per frame\n"
 "  --ascii-end            print the text screen (display codes -> ASCII) at exit\n"
+"  --vram-dump FILE       write the raw video RAM (4 KB) at exit\n"
 "  --ascii-cols 40|80     text width for --ascii-end (default 40)\n"
 "  --dump-mem A:L:FILE    write main RAM A..A+L-1 at exit (physical RAM, not the\n"
 "                         CPU's banked view; A and L in hex, e.g. 1200:100:ram.bin)\n"
@@ -208,6 +214,8 @@ static bool parse_args(int argc, char **argv, Options &o)
             o.type_release = c == std::string::npos ? o.type_press : parse_num(v.substr(c + 1));
         }
         else if (a == "--screenshot") o.screenshots.insert(parse_num(next()));
+        else if (a == "--shift-lead") o.shift_lead = parse_num(next());
+        else if (a == "--key-layout") o.key_sharp = next() != "pc";
         else if (a == "--dump-frames") {
             std::string v = next();
             size_t c = v.find(':');
@@ -219,6 +227,7 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--out") o.out_dir = next();
         else if (a == "--frame-log") o.frame_log = next();
         else if (a == "--ascii-end") o.ascii_end = true;
+        else if (a == "--vram-dump") o.vram_dump = next();
         else if (a == "--ascii-cols") o.ascii_cols = (int)parse_num(next());
         else if (a == "--dump-mem") {
             std::string v = next();
@@ -723,6 +732,7 @@ void Sim::write_config()
     top->cfg_cpu      = (uint8_t)(opt.turbo & 7);
     top->cfg_audio    = 0;
     top->ramdisk_en   = opt.ramdisk;
+    top->key_sharp    = opt.key_sharp;
     top->fdd_b_unit2  = opt.fdd_b_hd;
     top->direct_start_en = opt.direct_start;
     top->prn_en       = opt.printer.empty() ? 0 : 1;
@@ -801,11 +811,12 @@ void Sim::schedule_typing()
                 if (!ok) fprintf(stderr, "--type: no key for '%c'\n", s[i]);
             }
             if (!ok) continue;
+            uint32_t lead = k.shift ? opt.shift_lead : 0;
             if (k.shift) ps2_schedule.insert({f, {PS2_LSHIFT, false, true}});
-            ps2_schedule.insert({f, {k.code, k.extended, true}});
-            ps2_schedule.insert({f + opt.type_press, {k.code, k.extended, false}});
-            if (k.shift) ps2_schedule.insert({f + opt.type_press, {PS2_LSHIFT, false, false}});
-            f += opt.type_press + opt.type_release;
+            ps2_schedule.insert({f + lead, {k.code, k.extended, true}});
+            ps2_schedule.insert({f + lead + opt.type_press, {k.code, k.extended, false}});
+            if (k.shift) ps2_schedule.insert({f + lead + opt.type_press, {PS2_LSHIFT, false, false}});
+            f += lead + opt.type_press + opt.type_release;
         }
     }
 }
@@ -937,6 +948,11 @@ int Sim::run()
         fclose(img);
     }
     if (opt.ascii_end) print_ascii();
+    if (!opt.vram_dump.empty()) {
+        FILE *f = fopen(opt.vram_dump.c_str(), "wb");
+        for (int a = 0; f && a < 4096; a++) { top->vram_addr = a; top->eval(); fputc(top->vram_q, f); }
+        if (f) fclose(f);
+    }
     dump_memory();
     if (flog) fclose(flog);
     if (fwav) { wav_header(); fclose(fwav); }

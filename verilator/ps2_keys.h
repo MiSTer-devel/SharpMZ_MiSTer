@@ -3,6 +3,8 @@
 // these to the Sharp key matrix.
 #pragma once
 #include <cstdint>
+#include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -55,6 +57,13 @@ static bool ps2_from_name(const std::string &n, Ps2Key &k)
     };
     for (auto &t : tab) {
         if (n == t.name) { k = {t.code, t.ext, t.shift}; return true; }
+    }
+    // {SCxx} a raw scan code, {E0xx} an extended one, {SSCxx} with SHIFT (hex).
+    bool sh = n.rfind("SSC", 0) == 0;
+    std::string h = sh ? n.substr(3) : n.size() > 2 && (n.rfind("SC", 0) == 0 || n.rfind("E0", 0) == 0) ? n.substr(2) : "";
+    if (h.size() == 2 && isxdigit((unsigned char)h[0]) && isxdigit((unsigned char)h[1])) {
+        k = {(uint8_t)strtoul(h.c_str(), nullptr, 16), n.rfind("E0", 0) == 0, sh};
+        return true;
     }
     return false;
 }

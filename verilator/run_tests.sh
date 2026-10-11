@@ -34,6 +34,8 @@
 #                 MZ-800 mode, where the CG ROM sits at 1000 until the start switches it out)
 #   rd_mz800      MZ-800: tests/mz800/ramdisk.mzf writes 5A C3 to the RAM disk board (--ramdisk) and reads them back
 #   kb_mz80k/80a  type AB, cursor LEFT, C at the monitor prompt: *AC (LEFT needs the keymap's added SHIFT)
+#   kb_pc_mz80a/700  OSD Keyboard Layout PC: symbols typed as on a PC keyboard show as typed (the core forces the
+#                 machine's SHIFT: @ is unshifted on the MZ-80A, ' is SHIFT 7 on the MZ-700)
 #   cg_mz1500     MZ-1500: tests/mz1500/cgread.mzf reads the CG ROM through OUT E5 0 and prints the 8 bytes of 'F' in
 #                 hex, bit 7 = left pixel as the PCG (MAME's mz700fon.jpn bit-reversed: 7E40407840404000)
 #   qd_mz1500     MZ-1500: Q loads Lode Runner from a Quick Disk dump (../software/mz1500); PCG title, frame hash at 600
@@ -69,6 +71,11 @@ for m in mz80k mz80a; do      # cursor keys need the added SHIFT (fix_keymap.py)
     ( $BIN --model $m --type '150:AB{LEFT}C' --type-rate 6:6 --stop-at-frame 300 --ascii-end --quiet 2> "$OUT/kb_$m.log" \
           | sed -n 2p > "$OUT/kb_$m.txt" ) &
     pids+=($!); names+=("kb_$m")
+done
+for m in mz80a mz700; do
+    ( $BIN --model $m --key-layout pc --shift-lead 4 --type-rate 6:6 --type '150:A!"#$%&'"'"'()*+,-./:;<=>?@[B' \
+          --stop-at-frame 800 --ascii-end --quiet 2> "$OUT/kb_pc_$m.log" | sed -n 2p > "$OUT/kb_pc_$m.txt" ) &
+    pids+=($!); names+=("kb_pc_$m")
 done
 ( $BIN --model mz800 --type 160:M --stop-at-frame 300 --ascii-end --quiet > "$OUT/mon_mz800.txt" 2> "$OUT/mon_mz800.log" ) &
 pids+=($!); names+=("mon_mz800")

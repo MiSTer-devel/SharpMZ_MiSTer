@@ -5,7 +5,7 @@ A hardware emulation of the Sharp MZ series personal and business computers, ori
 | Model  | Status | Model  | Status |
 | ------ | ------ | ------ | ------ |
 | MZ-80K | Working | MZ-80C | Working |
-| MZ-1200 | Working | MZ-80A | Working |
+| MZ-1200 | Working (MZ-80K monitor SP-1002 and keyboard; keys fixed 2026-10-11) | MZ-80A | Working |
 | MZ-700 | Working | MZ-80B | Working: IPL boots tape and floppy (BASIC, CP/M) |
 | MZ-2000 | Working: IPL, tape and floppy, colour graphics, katakana | MZ-800 | Working (IPL, graphics, PSG, tape, floppy, CP/M), tested on hardware |
 | MZ-1500 | New: IPL, PCG graphics, stereo PSG, Quick Disk (read and write) | | |
@@ -41,6 +41,7 @@ The tape loads, the tape image and the two floppy drives are on the OSD's first 
 | Model | MZ-80A, MZ-80K, MZ-80C, MZ-1200, MZ-700, MZ-80B, MZ-2000, MZ-800 or MZ-1500. Changing model resets the machine. |
 | CPU Speed | Default is the original speed. Each step doubles it up to the core's limit of about 32–35 MHz (MZ-700: +4; MZ-80K/A/B: +4 or +5); higher steps fall back to the original speed. |
 | Boot Reset | MZ-80B/2000: reset back into the IPL. |
+| Keyboard Layout | PC (default): each key types what is printed on it, as on a US PC keyboard, on every model: the core presses or releases the machine's SHIFT as needed (on the MZ-80A, @ is unshifted and " is SHIFT 2). Letters, Return, the cursor keys and so on work as in the Sharp layout, so letters type capitals as on the real machines. Characters a model doesn't have do nothing. Sharp: each key is the Sharp key in its place, with the Sharp machine's own legends (for games and for typing as on the original keyboard). On the MZ-80A, MZ-700, MZ-800 and MZ-1500, Ctrl is CTRL (CTL), Esc is BREAK and Alt is GRAPH (GRPH). |
 | MZ-1X03 Joysticks | MZ-700/MZ-1500: connect two Sharp MZ-1X03 joysticks (MiSTer joysticks 1 and 2, read on E008). The MZ-800's own joystick ports (F0/F1) are always connected. |
 | MZ-800 Mode | The MZ-800 rear switch. In MZ-800 mode the IPL switches to MZ-800 graphics before starting a program loaded from tape; in MZ-700 mode (default) programs start in MZ-700 mode, which MZ-700 software needs. Reset after changing it. |
 

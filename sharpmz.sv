@@ -94,6 +94,7 @@ localparam CONF_STR =
 	"P1O[30],Boot Reset,Off,On;",
 	"P1O[32],MZ-800 Mode,MZ-700,MZ-800;",
 	"P1O[39],MZ-1X03 Joysticks,Off,On;",
+	"P1O[51],Keyboard Layout,PC,Sharp;",
 	"-;",
 	"P2,Tape;",
 	"P2T[31],Rewind Tape Image;",
@@ -678,6 +679,7 @@ sharpmz sharp_mz
 	.JOY0(joystick_0[5:0]),         // MZ-800: ports F0/F1; MZ-700/1500: MZ-1X03 on E008 when enabled.
 	.JOY1(joystick_1[5:0]),
 	.JOY_1X03(status[39]),
+	.KEY_SHARP(status[51]),
 	.RAMDISK_EN(status[40]),
 	.PRN_EN(status[47]),
 	.PRN_RDA(prn_rda),

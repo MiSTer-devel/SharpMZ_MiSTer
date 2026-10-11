@@ -34,13 +34,14 @@ MODEL = {'MZ80A': 0, 'MZ80K': 1, 'MZ80C': 2, 'MZ1200': 3, 'MZ700': 4, 'MZ80B': 5
 
 def status_bytes(model, opts=()):
     """16-byte CFG: status bit n is byte n/8, bit n%8. opts: (low_bit, width, value)."""
-    st = MODEL[model] << 35
+    st = MODEL[model] << 35 | 1 << 51            # Keyboard Layout: Sharp (KEYS below types by position)
     for lo, width, val in opts:
-        st |= (val & ((1 << width) - 1)) << lo
+        st = st & ~(((1 << width) - 1) << lo) | (val & ((1 << width) - 1)) << lo
     return st.to_bytes(16, 'little')
 
 
 FAST_TAPE = lambda step: (21, 3, step)     # OSD Fast Tape: 0 Default, 1 Off, 2 2x .. 6 32x
+PC_KEYS = (51, 1, 0)                       # OSD Keyboard Layout: PC (the tests default to Sharp)
 MZ800_MODE = (32, 1, 1)                    # rear switch in the MZ-800 position
 
 # A test: name, model, OSD options, files to mount [(kind, index, local source)], reset after
@@ -223,6 +224,18 @@ test('K09', 'MZ2000', 'MZ-2000 BASIC LOAD "EXPLORER" finds the third program on 
      files=[('s', 0, 'gen:mz2000_search')], opts=[FAST_TAPE(6)], reset=True,
      steps=[('wait', 25), ('shot', 'basic'), ('type', 'LOAD "EXPLORER"\n'), ('wait', 40), ('shot', 'loaded')])
 
+# OSD Keyboard Layout: PC. Every punctuation key, typed as on a US PC keyboard, shows its own character
+# (characters the model doesn't have type nothing; tools/keymap_measure.py --verify checks the same in the sim).
+PCTEXT = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'
+test('K11', 'MZ80A', 'PC keyboard layout on the MZ-80A: every punctuation key at the monitor',
+     opts=[PC_KEYS], steps=[('wait', 4), ('pctype', 'A' + PCTEXT + 'B'), ('wait', 2), ('shot', 'pc')])
+test('K12', 'MZ700', 'PC keyboard layout on the MZ-700: every punctuation key at the monitor',
+     opts=[PC_KEYS], steps=[('wait', 4), ('pctype', 'A' + PCTEXT + 'B'), ('wait', 2), ('shot', 'pc')])
+test('K13', 'MZ80K', 'PC keyboard layout on the MZ-80K: every punctuation key at the monitor',
+     opts=[PC_KEYS], steps=[('wait', 4), ('pctype', 'A' + PCTEXT + 'B'), ('wait', 2), ('shot', 'pc')])
+test('K14', 'MZ1200', 'MZ-1200 keys (it had the MZ-80A keymap on the MZ-80K monitor): letters, digits, punctuation',
+     opts=[PC_KEYS], steps=[('wait', 4), ('pctype', 'ABC123' + PCTEXT), ('wait', 2), ('shot', 'pc')])
+
 # MZ-800 joystick through a virtual Xbox 360 pad (tools/mister_keys.py joy): right + B held (MiSTer's SNES layout: the core's first button is the east button, Xbox B; Xbox A gives fire 2, D7), tests/mz800/joytest.mzf
 # reads F0/F1 with the 8255 strobes and prints them; the sim (joy_mz800, --joy0 17) gives E7 FF E7 FF.
 test('J01', 'MZ800', 'MZ-800 joystick: right + fire 1 held on a virtual pad, joytest prints E7 FF E7 FF',
@@ -346,6 +359,11 @@ KEYS.update({c: k for c, k in zip('1234567890', range(2, 12))})
 KEYS.update({c: k for c, k in zip('QWERTYUIOP', range(16, 26))})
 KEYS.update({c: k for c, k in zip('ASDFGHJKL', range(30, 39))})
 KEYS.update({c: k for c, k in zip('ZXCVBNM', range(44, 51))})
+# ('pctype', text): a US PC keyboard (OSD Keyboard Layout: PC); letters unshifted, shifted symbols as SHIFT chords.
+PCKEYS = {c: str(k) for c, k in KEYS.items() if c.isalnum() or c in '\n -=;,./'}
+PCKEYS.update({'[': '26', ']': '27', "'": '40', '`': '41', '\\': '43'})
+PCKEYS.update({c: f'42+{k}' for c, k in zip('!@#$%^&*()', range(2, 12))})
+PCKEYS.update({c: f'42+{k}' for c, k in zip('_+{}:"~|<>?', (12, 13, 26, 27, 39, 40, 41, 43, 51, 52, 53))})
 
 
 def sh(cmd, **kw):
@@ -473,6 +491,8 @@ def steps_file(t):
             out.append(f'wait {arg}')
         elif op == 'type':
             out.append('key ' + ' '.join(str(KEYS[c]) for c in arg.upper()))
+        elif op == 'pctype':
+            out.append('key ' + ' '.join(PCKEYS[c] for c in arg.upper()))
         elif op == 'shot':
             out.append(f'shot {arg}')
     return '\n'.join(out) + '\n'
@@ -480,7 +500,7 @@ def steps_file(t):
 
 def menu_name(t):
     """File name for the menu: test number, description, then the keys to type (an MGL can't type)."""
-    keys = [arg.replace('\n', ' Ret') for op, arg in t['steps'] if op == 'type']
+    keys = [arg.replace('\n', ' Ret') for op, arg in t['steps'] if op in ('type', 'pctype')]
     name = f'{t["name"]} {t["desc"]}'
     name = ''.join(c if c.isalnum() or c in " -+.,'()&" else ' ' for c in name)
     name = ' '.join(name.split())[:70].rstrip(' ,.-')
@@ -631,6 +651,10 @@ def main():
                 m.wait_for(arg, ref)
             elif op == 'type':
                 m.type(arg)
+            elif op == 'pctype':
+                codes = [PCKEYS[c] for c in arg.upper()]
+                m.ssh(f'python3 {Mister.KEYS_TOOL} key ' + ' '.join(codes))
+                time.sleep(sum(0.55 if '+' in k else 0.25 for k in codes))   # the daemon types after we return
             elif op == 'fetch':           # copy a mounted image back (after the core wrote to it); list a Quick Disk's blocks
                 local = os.path.join(a.out, f'{t["name"]}_{os.path.basename(t["remote"][arg])}')
                 subprocess.run(['scp', '-q'] + SSH_OPTS + [f'{m.target}:{t["remote"][arg]}', local], check=True)
