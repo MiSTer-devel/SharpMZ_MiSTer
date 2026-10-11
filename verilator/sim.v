@@ -31,6 +31,7 @@ module top(
    input         ioctl_download,
    input         ioctl_direct,   // the download is a direct load (OSD Load Direct to RAM)
    input         direct_start_en,// Load Direct starts the program (OSD Load Direct: Start Program)
+   input         tape_direct,    // OSD Tape Image Start: Direct (the first record to RAM on mounting)
    input         ioctl_wr,
    input         ioctl_rd,
    input  [24:0] ioctl_addr,
@@ -152,8 +153,21 @@ module top(
    wire [7:0]  tape_b_dout;
    wire        tape_data_region;
 
+   // Tape Image Start: Direct, as sharpmz.sv: the machine is held while the first record goes to RAM, then reset
+   // once more (64 clocks) as after a direct load; that reset also makes the tape engine load the next record.
+   wire        tape_ram_load;
+   reg         tape_ram_load_d = 0;
+   reg  [7:0]  tape_post_ctr = 0;
+   always @(posedge clk_sys) begin
+      tape_ram_load_d <= tape_ram_load;
+      if (tape_ram_load_d & ~tape_ram_load) tape_post_ctr <= 8'd64;
+      else if (tape_post_ctr != 0) tape_post_ctr <= tape_post_ctr - 1'd1;
+   end
+   wire        warm_all = warm_reset | tape_ram_load | (tape_post_ctr != 0);
+
    tape_image tape(
-      .clk(clk_sys), .reset(reset | warm_reset),
+      .clk(clk_sys), .reset(reset | warm_reset | (tape_post_ctr != 0)),
+      .direct_first(tape_direct & (cfg_model[2:1] != 2'b11)), .ram_load(tape_ram_load),
       .img_mounted(img_mounted), .img_readonly(img_readonly), .img_size(img_size),
       .sd_lba(sd_lba), .sd_rd(sd_rd), .sd_wr(sd_wr), .sd_ack(sd_ack),
       .sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din), .sd_buff_wr(sd_buff_wr),
@@ -173,7 +187,7 @@ module top(
    direct_start #(.CLK_HZ(70937600 / `SIM_CLK_DIV)) dstart(
       .clk(clk_sys), .reset(reset), .enable(direct_start_en & (cfg_model[2:1] != 2'b11)),
       .is_mz800(cfg_model[2:0] == 3'd5), .has_e0(cfg_model[2]), .vblank(VGA_VB),
-      .dl_active(ioctl_download & ioctl_direct), .dl_wr(mz_wr), .dl_addr(mz_addr), .dl_data(mz_dout),
+      .dl_active((ioctl_download & ioctl_direct) | tape_ram_load), .dl_wr(mz_wr), .dl_addr(mz_addr), .dl_data(mz_dout),
       .bus_active(ds_bus_active), .bus_wr(ds_bus_wr), .bus_addr(ds_bus_addr), .bus_dout(ds_bus_dout),
       .m1_n(ds_m1_n), .mreq_n(ds_mreq_n), .rd_n(ds_rd_n), .inj_go(ds_inj_go), .inj_data(ds_inj_data));
 
@@ -237,7 +251,7 @@ module top(
 `define SIM_CLK_DIV 1
 `endif
    mz_qdisk #(.BYTE_CLKS(5583 / `SIM_CLK_DIV)) qd(
-      .clk_sys(clk_sys), .reset(reset | warm_reset),
+      .clk_sys(clk_sys), .reset(reset | warm_all),
       .enable(cfg_display3[3] | (cfg_model[2:0] == 3'b101 & qd_mounted_l)),       // MZ-1500; MZ-800 with an image
       .io_addr(ext_io_addr), .io_rd(ext_io_rd), .io_wr(ext_io_wr), .io_dout(ext_io_dout),
       .io_din(qd_io_din), .io_oe(qd_io_oe),
@@ -250,7 +264,7 @@ module top(
    always @(posedge clk_sys) if (qd_mounted) qd_mounted_l <= |qd_size;
 
    mz_fdc fdc(
-      .clk_sys(clk_sys), .reset(reset | warm_reset), .ce_cpu(ext_ce_cpu),
+      .clk_sys(clk_sys), .reset(reset | warm_all), .ce_cpu(ext_ce_cpu),
       .model_ok(cfg_model[2] == 1'b1), .mode(fdc_mode), .crc_report(1'b0), .b_unit2(fdd_b_unit2),                          // MZ-700, MZ-800, MZ-80B, MZ-2000
       .io_addr(ext_io_addr), .io_rd(ext_io_rd), .io_wr(ext_io_wr), .io_dout(ext_io_dout),
       .io_din(fdc_io_din), .io_oe(fdc_io_oe), .int_n(ext_int_n),
@@ -271,7 +285,7 @@ module top(
    sharpmz core(
       .CLKMASTER      (clk_sys),
       .COLD_RESET     (reset),
-      .WARM_RESET     (warm_reset),
+      .WARM_RESET     (warm_all),
       .PS2_KEY        (ps2_key),
       .JOY0           (joy0),
       .JOY1           (6'd0),

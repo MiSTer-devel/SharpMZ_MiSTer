@@ -224,6 +224,18 @@ test('K09', 'MZ2000', 'MZ-2000 BASIC LOAD "EXPLORER" finds the third program on 
      files=[('s', 0, 'gen:mz2000_search')], opts=[FAST_TAPE(6)], reset=True,
      steps=[('wait', 25), ('shot', 'basic'), ('type', 'LOAD "EXPLORER"\n'), ('wait', 40), ('shot', 'loaded')])
 
+# OSD Tape Image Start: Direct: the tape image's first program goes into RAM and starts (no L, no tape wait);
+# the second is then on the tape for LOAD.
+test('L13', 'MZ700', 'Tape Image Start Direct: BASIC 1Z-013B starts by itself, LOAD gets the next program, LIST',
+     files=[('s', 0, 'gen:td_basic')], opts=[FAST_TAPE(5), (52, 1, 1)], reset=True,
+     steps=[('wait', 8), ('shot', 'basic'), ('type', 'LOAD\n'), ('wait', 12), ('type', 'LIST\n'), ('wait', 4), ('shot', 'list')])
+
+PACK800 = os.path.join(ROOT, 'out/SharpMZ-tester-pack-20261004/games/SharpMZ/MZ-800')
+for n, game in (('L14', 'Exolon'), ('L15', 'Knight Lore')):     # a loading screen, then the game it loads from tape
+    test(n, 'MZ800', f'Tape Image Start Direct: {game} (screen loader starts, loads the game from the tape)',
+         files=[('s', 0, f'{PACK800}/{game}.mzt')], opts=[FAST_TAPE(6), (52, 1, 1)], reset=True,
+         steps=[('wait', 6), ('shot', 'loader'), ('wait', 30), ('shot', 'game')])
+
 # OSD Keyboard Layout: PC. Every punctuation key, typed as on a US PC keyboard, shows its own character
 # (characters the model doesn't have type nothing; tools/keymap_measure.py --verify checks the same in the sim).
 PCTEXT = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'
@@ -566,6 +578,10 @@ def main():
                 mzt = src[3:]
                 src = os.path.join(stage, f'{t["name"]}_{len(remote)}.qdf')
                 sh(f'python3 "{ROOT}/tools/mzf2qdf.py" "{src}" "{mzt}" > /dev/null')
+            if src == 'gen:td_basic':     # BASIC 1Z-013B, then a BASIC program (Rock Paper Scissors)
+                src = os.path.join(stage, 'td_basic.mzt')
+                open(src, 'wb').write(open(yb('BASIC', 'MZ-700', 'BASIC 1Z-013B.mzf'), 'rb').read() +
+                                      open(yb('19xx', 'MZ-700', 'Rock Paper Scissors (19xx).mzf'), 'rb').read())
             if src == 'gen:zulpoko':      # MZ-5Z001 then Zulpoko (see Z01) as type 05 named AUTO RUN, so BASIC's boot loads it
                 src = os.path.join(stage, 'zulpoko.mzt')
                 b = open(f'{SW}/mz1500/5Z001.mzt', 'rb').read()

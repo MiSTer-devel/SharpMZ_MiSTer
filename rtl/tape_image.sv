@@ -15,6 +15,10 @@
 //                    - MZ-80B/2000 APSS: seek forward/back moves one record; eject rewinds.
 //                    - Save: when the CMT has recorded a complete file (RECORD_READY), the header
 //                      and data are read back and appended to the image after the last record.
+//                    - Start direct (OSD Tape Image Start: Direct): on mounting, the first record goes
+//                      into RAM as Load Direct puts it (header at 10F0, data at its load address,
+//                      the machine held in reset, then started by direct_start.sv), and the tape is
+//                      left at the second record, which a loader or BASIC then reads from the CMT.
 //
 //                  MiSTer can't grow a mounted image, so saving needs spare space in the file; a
 //                  zero-filled blank tape works (the zero attribute marks the end of the tape).
@@ -56,6 +60,8 @@ module tape_image
 
 	// Controls.
 	input             rewind,          // Pulse: go back to the start of the tape.
+	input             direct_first,    // On mounting, the first record goes to RAM (Load Direct), the tape to the second.
+	output reg        ram_load = 0,    // Writing the first record to RAM: hold the machine in reset.
 	input             host_busy,       // An OSD download is using the core bus (and may be filling the CMT); the engine holds still.
 	input      [13:0] cmt_status,      // CMT_BUS_OUT from the core (see mctrl_pkg.vhd).
 
@@ -84,6 +90,7 @@ localparam APSS_EJECT   = 11;
 
 localparam [24:0] CMT_HDR  = 25'h0400000;
 localparam [24:0] CMT_DATA = 25'h0410000;
+localparam [24:0] SYSRAM   = 25'h0100000;     // + CPU address (the direct load's mapping)
 
 // ------------------------------------------------------------------------------------------------
 // Sector buffer: port A belongs to hps_io, port B to this module.
@@ -128,6 +135,8 @@ reg [16:0] len;            // Bytes of the current copy.
 reg [16:0] cnt;
 reg [15:0] rec_size;       // Data size of the record at rpos.
 reg        loaded;         // The CMT buffer holds the record at rpos.
+reg        direct_pending = 0;  // Start direct: the first record goes to RAM when it is loaded.
+reg [15:0] load_addr;      // Its load address (header bytes 20-21).
 
 // Previous record offsets, for APSS seek back.
 reg [31:0] hist[8];
@@ -192,6 +201,8 @@ always @(posedge clk) begin
 		record_no   <= 0;
 		hist_n      <= 0;
 		rpos        <= 0;
+		ram_load    <= 0;
+		direct_pending <= direct_first & |img_size;
 		pending_rewind <= 0; pending_save <= 0; pending_next <= 0; pending_prev <= 0; pending_reload <= 0;
 		if (|img_size) begin
 			pos    <= 0;
@@ -303,6 +314,8 @@ always @(posedge clk) begin
 	S_LOAD_HI: begin
 		rec_size[15:8] <= img_byte;
 		cnt   <= 0;
+		if (direct_pending & rpos == 0) ram_load <= 1;          // start direct: this record goes to RAM
+		direct_pending <= 0;
 		state <= S_LOAD_HDR;
 	end
 	S_LOAD_HDR: begin
@@ -314,14 +327,26 @@ always @(posedge clk) begin
 		end
 	end
 	S_LOAD_HDR_WR: if (!bus_busy) begin
-		bus_addr <= CMT_HDR + cnt[6:0];
+		if (cnt == 17'd20) load_addr[7:0]  <= img_byte;
+		if (cnt == 17'd21) load_addr[15:8] <= img_byte;
+		bus_addr <= ram_load ? SYSRAM + 25'h10F0 + cnt[6:0] : CMT_HDR + cnt[6:0];
 		bus_dout <= img_byte;
 		bus_wr   <= 1;
 		cnt      <= cnt + 1'd1;
 		state    <= S_LOAD_HDR;
 	end
 	S_LOAD_DATA: begin
-		if (cnt == {1'b0, rec_size} || rpos + 32'd128 + cnt >= size) begin
+		if ((cnt == {1'b0, rec_size} || rpos + 32'd128 + cnt >= size) && ram_load) begin
+			// In RAM: let the machine go (sharpmz.sv then resets it once more and direct_start.sv starts the
+			// program) and put the tape at the next record, which the reset reloads into the CMT.
+			ram_load  <= 0;
+			hist[0]   <= rpos;
+			hist_n    <= 1;
+			rpos      <= rpos + 32'd128 + rec_size;
+			record_no <= record_no + 1'd1;
+			state     <= S_LOAD;
+		end
+		else if (cnt == {1'b0, rec_size} || rpos + 32'd128 + cnt >= size) begin
 			loaded <= 1;
 			state  <= S_IDLE;
 		end else begin
@@ -329,7 +354,7 @@ always @(posedge clk) begin
 		end
 	end
 	S_LOAD_DATA_WR: if (!bus_busy) begin
-		bus_addr <= CMT_DATA + cnt[15:0];
+		bus_addr <= ram_load ? SYSRAM + {9'd0, load_addr + cnt[15:0]} : CMT_DATA + cnt[15:0];
 		bus_dout <= img_byte;
 		bus_wr   <= 1;
 		cnt      <= cnt + 1'd1;
@@ -464,6 +489,7 @@ always @(posedge clk) begin
 	if (reset) begin
 		state   <= S_IDLE;
 		active  <= 0;
+		ram_load <= 0;
 		sd_rd   <= 0;
 		sd_wr   <= 0;
 		loaded  <= 0;

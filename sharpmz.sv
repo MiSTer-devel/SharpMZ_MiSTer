@@ -104,6 +104,7 @@ localparam CONF_STR =
 	"P2O[20],Audio Source,Sound,Tape;",
 	"P2O[41],Tape Sound,Off,On;",
 	"P2O[49],Load Direct,Start Program,Reset Only;",
+	"P2O[52],Tape Image Start,Tape,Direct;",
 	"-;",
 	"P3,Display;",
 	"P3O[8:7],Display Type,Default,Mono 80x25,Colour 40x25,Colour 80x25;",
@@ -193,6 +194,9 @@ wire  [7:0] sd_buff_din[4];
 wire        sd_buff_wr;
 
 wire        tape_active;
+wire        tape_ram_load;                          // tape_image: Tape Image Start: Direct, first record going to RAM
+wire        warm_reset_user;                        // the resets that also reset the tape engine (below)
+reg         tape_ram_load_d = 0;
 wire        ds_bus_active, ds_bus_wr, ds_inj_go;   // Load Direct start (direct_start, below)
 wire [24:0] ds_bus_addr;
 wire  [7:0] ds_bus_dout, ds_inj_data;
@@ -358,7 +362,9 @@ always @(posedge clk_sys) begin
 		mzf_load_addr <= 0;
 	end
 
-	if(hps_ioctl_download_d && !hps_ioctl_download && active_file_slot == FILE_TAPE_DIRECT) begin
+	tape_ram_load_d <= tape_ram_load;
+	if((hps_ioctl_download_d && !hps_ioctl_download && active_file_slot == FILE_TAPE_DIRECT) ||
+	   (tape_ram_load_d && !tape_ram_load)) begin
 		direct_load_reset_ctr <= 8'd64;
 	end
 	else if(direct_load_reset_ctr != 0) begin
@@ -421,7 +427,7 @@ wire  [7:0] tape_record;
 tape_image tape_image
 (
 	.clk(clk_sys),
-	.reset(reset | warm_reset),               // a machine reset clears the CMT, so the engine reloads its record
+	.reset(reset | warm_reset_user),          // a machine reset clears the CMT, so the engine reloads its record
 
 	.img_mounted(img_mounted[0]),
 	.img_readonly(img_readonly),
@@ -436,6 +442,8 @@ tape_image tape_image
 	.sd_buff_wr(sd_buff_wr),
 
 	.rewind(status[31]),
+	.direct_first(status[52] & (cfg_model[2:1] != 2'b11)),   // Tape Image Start: Direct (not the MZ-80B/2000)
+	.ram_load(tape_ram_load),
 	.host_busy(hps_ioctl_download | ds_bus_active),
 	.cmt_status(cmt_status),
 
@@ -469,7 +477,7 @@ direct_start #(.CLK_HZ(70937600)) direct_start
 	.is_mz800(cfg_model == 3'd5),
 	.has_e0(cfg_model[2]),
 	.vblank(vblank_emu),
-	.dl_active(direct_load_active),
+	.dl_active(direct_load_active | tape_ram_load),
 	.dl_wr(mz_ioctl_wr),
 	.dl_addr(mz_ioctl_addr),
 	.dl_data(mz_ioctl_dout),
@@ -528,7 +536,8 @@ always @(posedge clk_sys) begin
 	if (status[0] | buttons[1]) reset_stretch <= 17'h1FFFF;
 	else if (reset_stretch != 0) reset_stretch <= reset_stretch - 1'd1;
 end
-wire warm_reset = status[0] | buttons[1] | (reset_stretch != 0) | direct_load_active | (direct_load_reset_ctr != 0);
+assign warm_reset_user = status[0] | buttons[1] | (reset_stretch != 0) | direct_load_active | (direct_load_reset_ctr != 0);
+wire warm_reset = warm_reset_user | tape_ram_load;     // the tape image putting its first record in RAM (Tape Image Start)
 
 ////////////////  Machine  ////////////////////////
 
