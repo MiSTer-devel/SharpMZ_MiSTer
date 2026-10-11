@@ -106,6 +106,12 @@ MZ80A = {
     0x73: k(8, 5),                  # KP 5
     0x6C: k(8, 6),                  # KP 7
     0x75: k(8, 7),                  # KP 8
+    0x14: k(0, 7),                  # Ctrl      CTL (was F2 bit 7, the 4 key)
+    EXT | 0x14: k(0, 7),            # right Ctrl
+    0x76: k(0, 7) | SHIFT,          # Esc       BREAK (shift CTL)
+    0x59: k(0, 0),                  # right Shift SHIFT (was F0 bit 7, CTL)
+    0x11: k(0, 1),                  # Alt       GRPH
+    EXT | 0x11: k(0, 1),            # right Alt
 }
 
 # MZ-80K / 80C (sharpmz.net mz80k/kbdmatrix: LSHIFT F8 bit 0; SP-1002's table: unshifted DOWN, RIGHT, DEL, HOME).
