@@ -87,6 +87,7 @@ signal INTB                  : std_logic;
 component Interrupt is
     Port (
         -- System Signal
+        CLK                  : in  std_logic;
         RESET                : in  std_logic;
         -- CPU Signals
         DI                   : in  std_logic_vector(7 downto 0);
@@ -126,7 +127,8 @@ begin
 
     INT1 : Interrupt port map (
         -- System Signal
-        RESET                => RST_n,
+        CLK                  => CLK,
+        RESET                => RST_n,                  -- NB: active-low reset into an active-high port; see TODO.md.
         -- CPU Signals
         DI                   => DI,
         IORQ_n               => IORQ_n,
@@ -164,7 +166,7 @@ begin
             DDWB    <= '0';
             MFB     <= '0';
             EIB     <= '0';
-        elsif CLK'event and CLK='0' then
+        elsif rising_edge(CLK) then                     -- Was the falling edge; ENA is a one-cycle pulse, so this samples the same CPU state.
             if ENA = '1' then
                 if CE='0' and WR_n='0' then
                     if SELAD='1' then

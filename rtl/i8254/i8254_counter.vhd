@@ -114,7 +114,10 @@ begin
     process(RESET, CLK)
     begin
         if RESET = '1' then
-            MODE                     <= "010";
+            -- Power-on: mode 0, OUT low, idle until a count is written (as mz800emu; a real 8253 powers up undefined).
+            -- The MZ-700 monitor never programs counter 2 but enables its interrupt (8255 PC2), so with OUT high
+            -- a program that executes EI got an endless interrupt (Base Zero, Revers stuck at the monitor).
+            MODE                     <= "000";
             BCD                      <= '0';
             RW_MODE                  <= "01";
         elsif CLK'event and CLK = '1' then
@@ -296,7 +299,7 @@ begin
     process(RESET, CLK)
     begin
         if RESET = '1' then
-            CTR_OUTi                 <= '1';
+            CTR_OUTi                 <= '0';
         elsif CLK'event and CLK = '1' then
 
             if    CTRL_MODE_EN = '1' then

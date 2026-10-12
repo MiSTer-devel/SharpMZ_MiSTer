@@ -1,378 +1,153 @@
 # [Sharp MZ](https://en.wikipedia.org/wiki/Sharp_MZ) for MiSTer Platform
 
-For a better rendered view of this README, please look at my [github.io website](https://www.eaw.app/sharpmz-emulator/)
+A hardware emulation of the Sharp MZ series personal and business computers, originally written by Philip Smart ([eaw.app](https://www.eaw.app/sharpmz-emulator/)), running as a standard MiSTer 8-bit computer core.
 
-This project aims to provide full hardware emulation (along with extensions) of the Sharp MZ Series Computers.
+| Model  | Status | Model  | Status |
+| ------ | ------ | ------ | ------ |
+| MZ-80K | Working | MZ-80C | Working |
+| MZ-1200 | Working (MZ-80K monitor SP-1002 and keyboard; keys fixed 2026-10-11) | MZ-80A | Working |
+| MZ-700 | Working | MZ-80B | Working: IPL boots tape and floppy (BASIC, CP/M) |
+| MZ-2000 | Working: IPL, tape and floppy, colour graphics, katakana | MZ-800 | Working (IPL, graphics, PSG, tape, floppy, CP/M), tested on hardware |
+| MZ-1500 | New: IPL, PCG graphics, stereo PSG, Quick Disk (read and write) | | |
 
-The initial version is based on the Terasic DE10 Nano board and hosted under the [MiSTer_Devel](https://github.com/MiSTer_Devel) project using the HPS processor for UI operations. Work is currently under way to embed the [ZPU Evo](/zpu-evo/) into the design to act as the UI processor such that the emulation can be hosted on different hardware as needed.
+How it compares with the original v2 core, NibblesLab's DE0 cores, mz800emu and MAME: [docs/comparison.md](docs/comparison.md).
 
-The following emulations have been written:
+## Features
 
-  | Emulator   | Status              | Emulator   | Status              |
-  | --------   | ------              | --------   | ------              |
-  | MZ80K      | Developed           | MZ80C      | Developed           |
-  | MZ1200     | Developed           | MZ80A      | Developed           |
-  | MZ700      | Developed           | MZ80B      | Developed           |
-  | MZ2000     | Partially Developed | MZ800      | Under development   |
-  
-The current version of the emulator provides:
-
-* 48K RAM for MZ80K,C,1200,A
-* 64K RAM for MZ700, MZ80B
-* Hardware Tape Read/Write with selectable 1x - 32x Fast Mode
-* APSS Tape Drive for the MZ80B/MZ2000 - Fully automated APSS using the Menu Queue system.
-* Turbo Mode 1x - 32x (ie. 112MHz for MZ700)
-* Programmable Character Generator (PCG-8000/PCG-1200)
-* 40x25, 80x25 Mono and Colour Display Modes
-* 320x200, 640x200 8 Colour Bit addressed Graphics
-* VGA Scaling
-* Updateable Monitor Rom, CGRom, Keymap, User Rom, FDC Rom per Emulation type.
-* i8253 mono audio or Tape audio
-
-## Enhancements in test/under development
-
-* Floppy Disk Drive/Controller 5.25"
-* Quick Disk Controller
-* Dual digital Joystick Input (MZ700)
-
-## Known Issues
-
-* Keyboard mappings could be better, especially for the MZ1200 which is the Japanese version of the MZ80A.
-* HDMI needs to be re-enabled in the design.
-* Need to complete the status frame buffer, used by the ZPU I/O processor for status information display - not critical to use.
-
-## Design Summary
-
-The idea of this design is to keep the emulation as independent of the HPS as possible (so it works standalone), only needing the HPS to set control registers, read/write tape/floppy cache ram with complete images and overlay the menu control system. The MiSTer/HPS system is an excellent base on which to host emulations, but there may be someone wanting to port this emulator to another target such as the Xilinx Zynq 7000 (which I have also been playing with). This in theory should allow easier porting if someone wants to port this emulator to another platform and control it with a PC (parallel port), HPS or instantiate another CPU as the menu control system.
-
-As the Cyclone V SE on the Terasic DE10 has 5.5Mbits of memory, nearly all the RAM used by the emulation is on the FPGA. The Floppy Disk Controller may use HPS memory/external SDRAM depending on whether I decide to cache entire Floppy Disks as per the CMT unit or use the secondary SD card.
+* Z80 CPU at the original speed (2 MHz MZ-80K/C/1200/A, 3.547 MHz MZ-700/800, 4 MHz MZ-80B/2000), with turbo steps up to about 32–35 MHz.
+* Native video timing, 15.6 kHz (MZ-700/800/1500 50 Hz PAL, the others 60 Hz), scaled by the MiSTer framework for HDMI; analog output gets the native 15 kHz signal, or 31 kHz through the scandoubler (HQ2x, scanlines) for VGA monitors.
+* 40x25 and 80x25, mono and colour character modes; programmable character generator (PCG); MZ-80B/2000 graphics RAM.
+* MZ-800: IPL and 9Z-504M monitor, MZ-700 and MZ-800 modes with the MZ-800 memory map, all 320x200/640x200 graphics modes with hardware scroll, the SN76489 sound chip and the Z80 PIO.
+* Floppy disk (MB8876 interface on the MZ-700, MZ-800, MZ-80B and MZ-2000): two drives from Extended DSK (`.dsk`) or D88/D77 images. The MZ-800 IPL boots CP/M 1.x, 2.3 and 4.1 disks; the MZ-80B/2000 IPL boots Disk BASIC, CP/M and TF-DOS.
+* 8253 sound or the tape signal on the audio output.
+* Joysticks: the MZ-800's ports and the MZ-1X03 joysticks of the MZ-700/1500.
+* Cassette: MZF loading onto the virtual tape or straight into RAM, and a **Tape Image** slot that loads multi-program tapes and **saves** programs written with SAVE. MZ-80B/2000 load from the tape image under IPL control (deck commands and APSS seek). Fast tape up to 32x.
+* Monitor ROMs, character generator ROMs and keymaps for every model are built in, and can be replaced from the OSD.
 
 ## Installation
 
-1. Follow the Setup Guide to create a new SD boot disk. <https://mister-devel.github.io/MkDocs_MiSTer/setup/software/>
-2. Copy across to the SD (via scp or mount the SD under Windows/Linux and use local copy commands) the latest RBF file from the releases folder, ie: `scp SharpMZ_MiSTer/releases/SharpMZ_<date>.rbf root@<de10 ip address>/media/fat/SharpMZ.rbf`. Target name can be anything you like ending with .rbf. 'root' password is 1 on a default installation. The IP address can be obtained in the MiSTer Main System Menu before loading a core, press ESC to view.
-3. Make a SharpMZ directory on the SD card, ie:
-   `ssh root@<de10 ip address>`
-   `mkdir /media/fat/SharpMZ`
-4. Copy any Rom Files, MZF Tape Files, DSK files across to the new directory, ie:
-   `scp *.mzf root@<de10 ip address>:/media/fat/SharpMZ/`
-5. Start the MiSTer menu (ie. press the DE10 reset button if it is not showing).
-6. Select the SharpMZ core (or whatever name you called it).
-7. The emulator will boot into an MZ80A model with the SA-1510 monitor.
-8. Press F12 to change the configuration, select Save Config to store it.
+Copy `SharpMZ_<date>.rbf` from `releases/` to the `_Computer` folder of your MiSTer SD card, and put your tape files (`.mzf`, `.mzt`) and disk images (`.dsk`) in `games/SharpMZ/`.
 
 ## Using the Emulator
 
-## Menu System
+The core boots as an MZ-80A with the SA-1510 monitor. Press F12 for the OSD.
 
-The MiSTer menu system is used extensively on this design as the Front End control. It allows for loading/saving of cassettes and floppy disks, setting the machine parameters, the display parameters, debugging and access to the MiSTer control menu.
-
-### Tape Storage
-
-In order to use the emulation seriously, you need to be able to load and save existing programs. Initially (on the original machines) this was via a CMT (tape) unit and later moved on to Floppy/Quick Disks.
-
-This menu controls the hardware CMT unit and has the following choices:
-
-* Load direct to RAM
-  This option allows you to load an MZF format tape file (ie. 128 bytes header + code) directly into RAM. It uses the Load Address and Size stored in the header in order to correctly   locate the code and also stores the header in the Cassette Work area at 10F0H. After load is completed and warm reset is made, the details of the tape are displayed on-screen. In   order to run the loaded program, simply issue the correct monitor command, ie. J1200 (Jump to 1200H where 1200H is shown as the Execution Address in the tape summary).
-* Queue Tape
-  A real cassette has 1 or more programs stored on it sequentially. The emulation cache only stores 1 full program so this is a mechanism to line up multiple programs and they will be fed into the emulation cache as it becomes empty, thus simulating a real cassette. Selecting this option presents you with a directory listing of all MZF files. Choose one per selection and it will be added to the Queue. The programs queued will be displayed on the menu.
-
-  For the MZ80B/MZ2000, the original tape drive was an automated APSS drive capable of searching backwards and forwards for a program. The queue emulates this by interpreting the
-  APSS signals, moving the queue forward and backwards as necessary. Thus if you are to use a database program or similar which has multiple volumes you need to add these into the
-  tape queue for the program to function correctly.
-* Clear Queue
-  This option allows you to purge all queue entries.
-* ~~Save Tape - This option allows you to save a program to the MiSTer SD card which is in the emulation cache. Normally the emulation would have written a program/data to tape (ie. via the BASIC ‘SAVE’ command) which in reality is stored in the emulation cache. The tape is saved under the name given in the emulation save command (ie. in BASIC ‘SAVE “myfile”’ would result in a file called myfile.mzf being saved).~~
-* ~~Auto Save Tape - This option allows you to auto save the emulation cache. Ie. when an emulation save completes, a flag is raised which is seen by the MiSTer program and the emulation cache is saved to SD under the name given in the emulation.~~
-* Tape Buttons - This option allows you to set the active Tape buttons, ie. Play, Record or Auto. Auto is a hardware mechanism to detect if the emulation is reading or writing to tape and process accordingly. Normally this is set to Auto but if you want to prevent tape read or write, change the setting as required.
-* Fast Tape Load - This option allows you to set the speed of the tape drive. On the original machines, the tape runs at 1200baud which is quite slow, so use of this option is recommended.  You can select one of:
-  * Off
-  * 2x
-  * 4x
-  * 8x
-  * 16x
-  Selecting “Off” runs the tape drive at the original speed.
-* Map Header (Ascii) - This option allows you to set an on-the-fly conversion between Sharp ASCII and Ansi ASCII. Only Capital letters map 1:1 so if you save a file on the emulator using lower case letters, you will get a file saved on the SD card with what looks like garbage in the title. The same if you are reading a file in the emulator and you created it on the PC using standard ASCII, garbage will be seen inside the emulator. Using this option allows you to map the two character sets as required. You can select one of:
-  * Off
-  * Record
-  * Play
-  * Both
-  Selecting "Off" performs no mapping, "Record" maps when saving an emulator file onto the SD card, "Play" maps when reading a file from the SD card into the emulator, "Both" maps during Record and Play.
-
-  *NB: With the introduction of the APSS functionality, Save Tape and Auto Save Tape are redundant. When a program running on the emulation issues a save, the name is transferred through to the MiSTer Main binary which then uses that name to create a file on the SD card.*
+The tape loads, the tape image and the two floppy drives are on the OSD's first page; the other settings are in the Machine, Tape, Display, Floppy and ROM and RAM pages below. MGL files can load any of the first-page entries (`<file type="f" index="1">` for Load Tape to CMT, `type="s" index="0"` for the tape image, `index="1"`/`"2"` for the drives).
 
 ### Machine
 
-The emulation emulates several Sharp MZ computers and this menu allows you to choose the desired Sharp Model to be emulated.
+| Option | Description |
+| ------ | ----------- |
+| Model | MZ-80A, MZ-80K, MZ-80C, MZ-1200, MZ-700, MZ-80B, MZ-2000, MZ-800 or MZ-1500. Changing model resets the machine. |
+| CPU Speed | Normal is the original speed; 2x to 16x multiply it, and Fastest is the most the core can do on that model (about 35 MHz, clk_sys/2). On the MZ-700/800/1500 16x is already the fastest. |
+| MZ-80B/2000 Boot Reset | MZ-80B/2000: reset back into the IPL. |
+| Keyboard Layout | PC (default): each key types what is printed on it, as on a US PC keyboard, on every model: the core presses or releases the machine's SHIFT as needed (on the MZ-80A, @ is unshifted and " is SHIFT 2). Letters, Return, the cursor keys and so on work as in the Sharp layout, so letters type capitals as on the real machines. Characters a model doesn't have do nothing. Sharp: each key is the Sharp key in its place, with the Sharp machine's own legends (for games and for typing as on the original keyboard). On the MZ-80A, MZ-700, MZ-800 and MZ-1500, Ctrl is CTRL (CTL), Esc is BREAK and Alt is GRAPH (GRPH). |
+| MZ-1X03 Joysticks | MZ-700/MZ-1500: connect two Sharp MZ-1X03 joysticks (MiSTer joysticks 1 and 2, read on E008). The MZ-800's own joystick ports (F0/F1) are always connected. |
+| MZ-800 Mode | The MZ-800 rear switch. In MZ-800 mode the IPL switches to MZ-800 graphics before starting a program loaded from tape; in MZ-700 mode (default) programs start in MZ-700 mode, which MZ-700 software needs. Reset after changing it. |
 
-* Machine Model - This option allows you to choose which Sharp MZ computer is emulated. Currently the choices are:
-  * MZ80K
-  * MZ80C
-  * MZ1200
-  * MZ80A
-  * MZ700
-  * MZ80B
-  * MZ2000
-  * MZ800 in the pipeline
+### Tape
 
-* CPU Speed - This option allows you to set the speed at which the emulation runs. Generally speaking, higher speeds can be beneficial in non-graphics based applications although some games benefit from a small speed boost. The choices are:
-  * MZ80K/C/1200/A = 2MHz,   4MHz, 8MHz,  16MHz, 32MHz, 64MHz
-  * MZ700          = 3.5MHz, 7MHz, 14MHz, 28MHz, 56MHz, 112MHz
-  * MZ80B/2000     = 4MHz,   8MHz, 16MHz, 32MHz, 64MHz
+A tape is either a single `.mzf` file (a 128-byte header followed by the program) or an `.mzt` file (several `.mzf` records back to back).
 
-* Audio Source - This option allows you to choose what is played through the audio output. The choices are:
-  * Sound - The mono audio generated by the emulation output on L/R channels.
-  * Tape  - The CMT signals as sound, Playback on Right channel, Record on Left channel. In theory you should be able to connect the right channel to an external tape drive and record to physical tape.
+| Option | Description |
+| ------ | ----------- |
+| Load Tape to CMT | Put an `.mzf` on the virtual tape. Start it from the machine as normal (`L` or `LOAD` in the monitor, `LOAD` in BASIC). |
+| Load Direct to RAM | Copy the program straight into memory at its load address and start it (see Load Direct below). |
+| Tape Image | The cassette itself, and the replacement for the old core's tape queue. Mount an `.mzt` (several programs back to back) or `.mzf`. The first program is ready to play; when the machine stops the tape after reading one program, the next one is loaded, so multi-part programs and loaders work. On the MZ-80B/2000 the APSS deck controls work on it: fast forward/rewind to the next/previous program, eject rewinds to the start. Programs saved with SAVE are appended to the image. |
+| Rewind Tape Image | Go back to the first program on the mounted image. |
+| Tape Image Start | Tape (default): the tape image plays from its first program, loaded as usual (`L`, `C` at the IPL menu, and so on). Direct: when an image is mounted, its first program goes straight into memory and starts, as Load Direct does, and the tape is left at the second program. A loader then reads the rest from the tape (Exolon, Knight Lore), and a BASIC tape starts BASIC with the program ready for `LOAD`. Not on the MZ-80B/2000. |
+| Tape Buttons | Auto (play or record as the machine needs), Off, Play, Record. |
+| Fast Tape | Run the CPU (and the tape) faster while the tape is moving. Fastest (default) is the most the core can do (about 35 MHz); 2x to 16x are slower steps; Off is real speed, for the few programs whose loaders count time while the tape runs. |
+| Sharp ASCII Name | Convert tape file names between Sharp display codes and ASCII on save and/or load. |
+| Tape Sound | Off (default); Mix: the tape signal mixed in quietly while the tape plays or records, as the machines' own tape monitor would; Only: the tape signal instead of the machine's sound. |
+| Load Direct Start | Program (default): after Load Direct to RAM the machine boots for about 1.5 s, then the core puts back what the load wrote to 10F0-11FF (the boot uses that area), sets the memory map and jumps to the exec address with SP at 10F0, as after a tape load. Only machine-code files (MZF type 01) are started; BASIC programs and data just reset. Reset Only: just reset, then start it yourself with `J` and the exec address in the monitor; the MZF header is in RAM at 10F0 as after a tape load (load address at 10F0+20, exec at 10F0+22, low byte first). The MZ-80B and MZ-2000 always reset only. |
 
-* Audio Volume - This option allows you to set the output volume. There are 16 possible steps from Min .. Max.
-* Audio Mute
+**Saving programs.** MiSTer can't grow a mounted file, so saving needs a tape image with spare room. Make a blank one with `tools/make_blank_tape.py` (default 1 MB, zero-filled), mount it as the Tape Image, and SAVE as usual (for example `S120012FF1200` then a file name in the MZ-700 monitor). Each program is appended after the last one. If the image is read-only or full, the save is skipped.
 
-  This option allows you to Mute the audio output.
-* Rom Management
+### Floppy
 
-  The emulation comes with the Monitor, Character Generator and Key Mapping Roms built-in for each machine emulated. This option selects a sub-menu which allows you to upload non-standard Roms when the emulation is started (ie. the Core is selected).
+| Option | Description |
+| ------ | ----------- |
+| Floppy Drive A / B | Mount an Extended DSK or D88/D77 image (up to 2 MB: 720 KB CP/M disks and 1.44 MB HD disks). With a disk in drive A, the MZ-800 and MZ-80B IPLs boot it at reset; on the MZ-700 type `J F000` at the monitor (the interface brings its MZ-1E05 ROM). The interface is available on the MZ-700, MZ-800, MZ-80B and MZ-2000. |
+| Quick Disk | Mount a Quick Disk image: a raw dump (`.qdf`) or mz800emu's `.mzq`. Built into the MZ-1500 (press `Q` at the IPL menu); on the MZ-800 it appears while an image is mounted. Writes (BASIC `INIT "QD:"`, `SAVE`) go back to the image, which must be full size: make a blank one with `tools/make_blank_qd.py`. |
+| Floppy Interface | Auto (present only while a disk is mounted, so the IPL doesn't stop at "Make ready FD"), On or Off. |
+| Floppy CRC Errors | Ignore (default): sectors the disk image marks as read with a CRC error are read as good, which suits most dumps. Report: the drive reports CRC ERROR for them, for software that checks (copy protection). |
+| Drive B Unit | Which unit the drive B slot answers as: the 2nd drive (B:), or the 3rd, where the MZ-800 CP/M 4.1 HD driver keeps its 1440 KB drive C:. Mount a 1.44 MB image there and use C:. |
+| MZ-800 RAM Disk | A 64 KB RAM disk board (ports EA/EB, F8-FA), for CP/M's RAM drive. Its contents are lost at power off. |
 
-  * Machine Model - This option allows you to select the emulated Sharp MZ computer to which the custom rom images will affect. The choices are:
-    * MZ80K
-    * MZ80C
-    * MZ1200
-    * MZ80A
-    * MZ700
-    * MZ80B
-    * MZ2000
-    * MZ800 in the pipeline
-
-  * User ROM - On some machine models (ie. MZ80A) there exists a socket to place a User ROM, which will have control passed to it should the first byte be 0 and non-writeable. Although this option only exists on certain models, it is a nice to have feature it is available for all machine models. This option allows you to enable or disable the User ROM (NB. If you enable this option, it only enables hardware select, you still need to upload a ROM which has the first byte set to 0).
-  * Floppy Disk ROM - A Floppy Disk drive was an expansion option for the Sharp MZ computers, and with the advent of the MZ700, a Quick Disk drive was also an option. These options typically held control software in a ROM at location F000H. This option allows you to enable this feature, albeit you still need to upload a ROM.
-  * Enable Custom Rom - This section allows you to enable custom Roms and select the image which will be uploaded. For each Rom, you can enable or disable. If enabled, you can choose the required file. The Roms which can be customized are:
-    * Monitor (40x25)
-    * Monitor (80x25)
-    * Char Generator
-    * Key Mapping
-    * User Rom
-    * Floppy Disk
-    The Monitor Rom is a special case. Most of the Personal Sharp MZ Computers were only able to display 40x25 characters so the Rom hardcodes these parameters. Some people required wider screens for use with CPM, so hardware modifications were made to create an 80x25 display. The emulation is capable of both modes but in order to run correctly, a different Monitor Rom for 80x25 display is needed.
+Writes go back to the image; mount a copy if you want to keep the original.
 
 ### Display
 
-The display on the Sharp MZ computers was originally quite simplistic. In order to cater for enhancements made in each model and by external vendors, the emulation has several configurable parameters which are grouped under this menu.
+| Option | Description |
+| ------ | ----------- |
+| Display Type | Default follows the model (MZ-700/800 colour 40x25, MZ-80B/2000 mono 80x25, others mono 40x25). |
+| Scandoubler Fx | None (native 15 kHz), HQ2x or CRT scanlines 25/50/75%: doubles the picture to 31 kHz for VGA monitors. MiSTer.ini `forced_scandoubler=1` doubles it too. |
+| MZ-800 Border | Show the MZ-800 border colour around the picture (464 x 288 instead of 320 x 200). |
+| VRAM Wait | Insert the original wait states when the CPU accesses video RAM during the display (MZ-80A/1200/700). Some software relies on this timing. |
+| Aspect ratio | Original, full screen, or the custom ratios from `MiSTer.ini`. |
 
-* Display Type - This option allows you to select the display used. Normally, when a machine model is chosen, it defaults to the original display, this option allows you to override the default. The choices are:
-  * Mono 40x25
-  * Mono 80x25
-  * Colour 40x25
-  * Colour 80x25
+### ROM and RAM
 
-* VGA Scaling - In order to cater for various VGA monitors, this option programs the sync generator to mimic standard VGA signals. As VGA resolution is higher than the original Sharp MZ 40x25 screen (320x200 pixels), scaling occurs from the original format upto the VGA format. The choices are:
-  * 640x480@60Hz
-  * Off
-  Other formats are built into the hardware but not currently enabled as they are tied in with the status buffer, a pixel mapped area around the display for outputting information such as Record or Play or Floppy in-use light.
+| Option | Description |
+| ------ | ----------- |
+| User ROM / FDC ROM | Map the user ROM (E800) or FDC ROM (F000) for the current model. |
+| Load System ROM / RAM / CGROM | Replace the built-in combined monitor ROM, the initial RAM image or the character generator ROM. The files use the same layout as `rtl/software/roms/combined_*.rom`. (The keymap is built in; Keyboard Layout chooses PC or Sharp.) |
 
-* Video - An extension to the original design was the addition of a graphics frame buffer. It is possible to blend the original display video with the graphics frame buffer. This option allows you to *Enable* or *Disable* the original display video (ie. if you only want graphics).
+**Alternative monitor ROMs.** Load System ROM writes the file from the start of the core's 128 KB system ROM
+(`rtl/software/roms/combined_mrom.rom`), through the normal MiSTer file download. The first 4 KB of that ROM is the
+MZ-80K's 40-column monitor, so a 4 KB MZ-80K monitor (for example `80ktc.rom`, which starts "System Monitor") can be
+loaded as it is:
 
-* Graphics - There were various add-on boards made available in order to display bit addressable pixel graphics. This is my extension to the original design and as I gather information on other add-on boards, I will adapt the hardware interface so it accommodates these options. Please see the section below on the graphics frame buffer details if needed. This option allows you to enable or disable the display of the graphics frame buffer (which is blended with the original character based video output).
+1. Machine: MZ-80K, Display: 40 columns.
+2. ROM and RAM > Load System ROM, pick the `.rom` file.
+3. Press Reset (OSD Reset). The CPU keeps running the old monitor until the reset, so loading alone seems to do
+   nothing.
 
-* Graphics Addr - As the emulation is catering for several Sharp MZ models in addition to adding graphics onto machines which originally didnt have graphics there can be a clash of I/O address for selecting the graphics mode and options. This option sets the default IO address for accessing the graphics control registers.
+The new monitor stays until the core is loaded again: the ROM is block RAM set up from the RBF, and Reset doesn't
+restore it. To go back to SP-1002, reload the core (or load a copy of `combined_mrom.rom`). Loading a monitor again
+after that works the same way. It only replaces the 40-column monitor: with an 80-column display the MZ-80K uses
+the copy at 0x1000.
 
-* VRAM CPU Wait - I deviated from the original design by adding a pixel based display buffer. During the Vertical Blanking period, I expand the character based VRAM and Attribute RAM into pixels and store them in the display buffer (a double buffer technique). This consequently means that no snow/tearing will occur if the CPU accesses the VRAM/Attribute RAM during the visible display period. The original design added software waits (MZ80K) and hardware CPU wait states (MZ80A/700) to eliminate snow/tearing and due to the addition of double buffering, this is no longer needed. You can thus disable the wait states with this option and gain some speed or enable them to keep compatibility.
+For other models, or the 80-column monitor, make a full image with the monitor at that model's offset and load it
+instead: `tools/make_monitor_rom.py mz80c monitor.rom out.rom [--80col]` (MZ-80K, 80C, 1200, 80A and 700; the
+offsets are listed in the script).
 
-* PCG Mode - All of the Sharp MZ computers used character generators which were hard coded in a ROM. External vendors offered add-ons to allow for a Programmable Character Generator based in RAM. This option enables the Programmable Character Generator which is compatible with the HAL PCG-8000/PCG-1200 add-ons. The options are:
-  * ROM
-  * RAM
+### Printer
 
-* Aspect Ratio - This option is a MiSTer framework extension which converts the Aspect Ratio from 4:3 to 16:9. It doesn’t work at the moment with VGA output but should work on HDMI.
-* Scandoubler - This option is a MiSTer framework extension which doubles the scan lines to widen/improve the image of older computer displays. It doesn’t work correctly with VGA output at the moment but should work on HDMI.
-  *NB: Aspect Ratio and Scandoubler are currently disabled due to the inclusion of the VGA Scaling hardware. When HDMI output is compiled into the design in the near future they will be re-enabled.*
+| Option | Description |
+| ------ | ----------- |
+| Printer | None, or UART: what the machine prints goes out of the MiSTer UART (8N1, at the speed set in Main's UART menu, 9600 by default) for the printer daemon [mister_printerd](https://github.com/alanswx/printeremulation), which makes a PDF (Epson model). Set the UART connection to Printer in Main's UART menu. |
+| Printer Charset | Sharp (default): bytes go out as the machine sends them, for the daemon's Sharp model (MZ-1P16 plotter-printer). ASCII: Sharp lowercase and symbols are converted to ASCII, graphics characters to spaces, and a bare CR (what BASIC's `PRINT/P` sends) gets an LF after it, for the Epson model and other ASCII printers. |
 
-### Debugging
+The MZ-700 printer port is I/O FE/FF and the MZ-800/1500 one the Z80 PIO (port B data, PA7 strobe, PA0 ready), with the handshake of the MZ-800 Technical Reference Manual and MZ-700 BASIC (`rtl/mz_printer.sv`). BASIC's `LIST/P` and `PRINT/P` print. The MZ-731's 4-colour plotter is driven through the same port, so its commands (`MODE GR`, `LINE`, `PCOLOR`) are sent too; the daemon's `sharpmz` model draws them (it is picked automatically for this core). With the option off the port behaves as before (no printer: the MZ-700 BASIC times out, the MZ-800 PIO reads ready).
 
-*Debugging has now been made a compile time option. If debugging logic has been enabled in the RTL and Main MiSTer binary, the debugging options below will be available.*
+## Known Issues
 
-In FPGA's, all the signals are internal and unless brought out to valuable IO pins, the signals are not easily evaluated on say a trusty Oscilloscope. Altera do have an on-chip solution in the form of it's Signal Tap analyser which adds logic into your design to record signal states which are read to a PC realtime but this requires forethought in setting up the taps, the triggers, edges, compiling and hoping you have considered the correct points and have enough free memory and spare logic (generally you do). In saying this, there is something magic about seeing signals real-time and probing them with an oscilloscope and to this end i’ve added a debugging mode which can be used at any time without affecting the emulation (unless you choose a debug frequency in which case the emulation will run at the selected frequency).
+* MZ-2000: the character ROM is MAME's `font.bin`, which was rebuilt by hand from bitmaps (MAME marks it a bad dump); a few katakana glyphs may differ from the real IX0286PA ROM.
+* MZ-800: checked in simulation against the mz800emu emulator, still being tested on hardware. The border colour is an option (Display > MZ-800 Border). Joysticks work in Knight Lore and Exolon in simulation; the RAM disk is new. Load Direct starts the program as mz800emu's direct load does, so programs that start in or read their MZF header at 10F0 (Exploding Fist, Jumpin' Jack, Solomon's Key) work (`docs/triage.md`).
+* Floppy: the MZ-80K/80A floppy interface isn't implemented. 1.44 MB images work as CP/M 4.1's HD drive C: (Drive B Unit: 3rd), read and write, on hardware. Writing works (CP/M SAVE on hardware); drive B and writes at turbo speeds are untested.
+* The author's framebuffer graphics extension (bitmap graphics for the MZ-700/80A) isn't available in this version.
+* The MZ-80B/2000 have had little testing beyond a handful of tapes and disks (see `TODO.md`).
+* Many MZ-1500 Quick Disk titles are archived as two tape images (side A a "DATA" loader that asks for side B). They don't run from tape; `tools/mzf2qdf.py OUT.qdf SIDE.mzt` makes a Quick Disk of each side (answer `Y` to "SET PROGRAM QD ?" after swapping in side B). `tools/qdinfo.py` lists a Quick Disk image's files and checks their CRCs.
+* Reset: OSD Reset (or Reset and close OSD), the MiSTer's USER button and LCtrl+LAlt+RAlt reset the machine; the physical reset button reloads it from cold. Before 2026-10-09 the OSD Reset entries did nothing.
+* MZ-1500 BASIC programs need MZ-5Z001 BASIC loaded first. Some tape images in the year-based collection say file type 02, which MZ-5Z001 rejects ("Illegal filemode"); Zulpoko Daisakusen is one, and it fails the same way in mz1500emu.
+* Tape recordings (the No-Intro "Waveform" sets, `.wav`/`.flac`) convert to MZF with `tools/wav2mzf.py RECORDING [OUTDIR]` (standard Sharp format only, not turbo loaders).
 
-Basically, the 8 LED’s on the main DE10 main board can display a selectable set of signals, either in auto mode (move from set to set after a fixed period) or a static set. The sample rate of the signals displayed on the LED’s is selectable from the Z80 CPU frequency down to 1Hz. You can also attach an oscilloscope onto the LED’s and thus see the waveform if a simple flicker is not sufficient. In addition, you can slow the CPU frequency down in steps from 1MHz to 1/10Hz so you have a good chance of seeing what is happening internally. This debugging addition is also a great method of understanding the internals of a computer and seeing the Z80 in action.
+## Design Summary
 
-To use the debug mode, press F12 to enter the MiSTer menu, then select Debug and you are offered the following choices:
+* **One clock.** Everything runs on a single 70.9376 MHz clock (4x the MZ-700's 17.7344 MHz crystal) with clock enables for the CPU, video, sound and timers (`rtl/clkgen.vhd`). The MZ-700/800 rates are exact divides.
+* **Standard MiSTer framework.** The `sys/` folder is stock Template_MiSTer, the OSD is a normal configuration string, and files come in through the standard ioctl and image-slot interfaces. Main_MiSTer's old Sharp MZ driver isn't used.
+* **Video** is the author's v2 VideoController from the [tranZPUter](https://git.eaw.app/eaw/tranZPUter) project, moved onto the core clock (`rtl/vc/`).
+* **Tape images** are handled in the FPGA by `rtl/tape_image.sv`, which moves programs between the image and the core's cassette buffer. The 64 KB tape data buffer is in the DE10-Nano's DDR3 (`rtl/tape_ddr.sv`, the MiSTer DDRAM port), which leaves block RAM for the floppy sector tables; no SDRAM board is needed.
+* **Floppy** is `rtl/mz_fdc.sv`: the Sharp interface around Sorgelig's `wd1793.sv` (from the FM-7 core), reading DSK images through the image slots.
+* More detail in `docs/design.md`.
 
-* Select Memory Bank - This option allows you to select one of the memory banks so it can be written to a local (DE10 SD Card) file:
-  | Bank    | Description                                                                                       |
-  | ------- | ------------------------------------------------------------------------------------------------- |
-  | SysROM  | System ROM. This is the complete concatenated set of Monitor ROM’s for all the emulations.        |
-  | SysRAM  | System RAM. This is the 64K Main RAM.                                                             |
-  | KeyMap  | Key Mapping ROM. This is the complete concatenated set of Key Mapping’s for all the emulations.   |
-  | VRAM    | Video RAM. This is the 2K Video RAM concatenated with the 2K Attribute RAM.                       |
-  | CMTHDR  | Cassette Header. This is the 128 byte memory holding the last loaded or saved tape header.        |
-  | CMTDATA | Cassette Data. This is the 64K memory holding the last loaded or saved tape data.                 |
-  | CGROM   | Character Generator ROM. This is the complete concatenated set of CGROM’s for all the emulations. |
-  | CGRAM   | Character Generator RAM. This is the 2K contents of the Programmable Character Generator RAM.     |
-  | All     | This is the complete memory set as one file.                                                      |
-  
-* Dump To `<memory bank name>` - Dump the selected memory bank. The system will show the file name used for the dump.
-  
-* Debug Mode - Select to Enable or Disable
-  
-* CPU Frequency - Select the CPU Frequency which can be one of:
-  * CPU/CMT - 1MHz, 100KHz, 10KHz, 5KHz, 1KHz, 500Hz, 100Hz
-  * 50Hz - 10Hz, 5Hz, 2Hz, 1Hz, 0.5Hz, 0.2Hz, 0.1Hz
+## Building and Simulation
 
-* Debug LEDS - Select to Enable or Disable
-* Sample Freq - This is the sampling frequency used to sample the displayed signals. It can be one of:
-
-  * CPU/CMT - 1MHz, 100KHz, 10KHz, 5KHz, 1KHz, 500Hz, 100Hz
-  * 50Hz    - 10Hz, 5Hz, 2Hz, 1Hz, 0.5Hz, 0.2Hz, 0.1Hz
-
-* Signal Block - This is the signal block for display. It can be one of:
-  * T80 - CPU Address/Data Bus and associated signals.
-  * I/O - Video, Keyboard and Select signals.
-  * IOCTL - External I/O Control. Address/Data and Select signals.
-  * Config - Register configuration signals.
-  * MZ80C I - 5 sets of signals relating to the MZ80K/C/1200/A/700/800.
-  * MZ80C II - An additional 5 sets of signals.
-  * MZ80B I - 5 sets of signals relating to the MZ80B/MZ2000.
-  * MZ80B II - An additional 5 sets of signals.
-
-* Bank - This is the Bank within the Block to be displayed on the LED’s. It can be one of:
-    | &nbsp;          | &nbsp; |             | &nbsp;     | &nbsp;     | &nbsp;    | &nbsp;     | &nbsp;     |
-    | --------------- | - | ---------------- | ---------- | ---------- | --------- | ---------- | ---------- |
-    | T80             | = | Auto,            |  A7-0,     | A15-8,     | DI,       | Signals    |            |
-    | I/O             | = | Auto,            |  Video,    | PS2Key,    | Signals,  |            |            |
-    | IOCTL           | = | Auto,            |  A23-16,   | A15-8,     | A7-0m     | Signals    |            |
-    | Config          | = | Auto,            |  Config 1, | Config 2,  | Config 3, | Config 4,  | Config 5   |
-    | MZ80C I         | = | Auto,            |  CS 1,     | CS 2,      | CS 3,     | INT/RE     | Clk        |
-    | MZ80C II        | = | Auto,            |  CMT 1,    | CMT 2,     | CMT 3,    |            |            |
-    | MZ80B I         | = | Not yet defined. |            |            |           |            |            |
-    | MZ80B II        | = | Not yet defined. |            |            |           |            |            |
-
-### System
-
-This is the MiSTer main control menu which allows you to select a core, map keys, set bluetooth, view IP address etc.
-
-### Control Options
-
-The menu system presents additional control options whose function is detailed below:
-
-| Option          | Description |
-| ------          | ----------- |
-| Boot Reset      | Perform an IPL reset on the Emulator when running in MZ80B/MZ2000 mode, ie. the boot switch you would press to bring up the IPL and load the initial program. |
-| Reset           | Reset the emulation, ie. toggle it's reset line. |
-| Reload config   | Reload the configuration saved previously. Any change made in these menus can be stored for future use, if additional changes are unwanted, use this option to reload your last good configuration. |
-| Save config     | Save the configuration to SD card. Any changes you made in the Menu system will be saved. |
-| Reset config    | Reset the configuration to standard defaults. |
-
-### Graphics Frame Buffer
-
-An addition to the original design is a 640x200/320x200 8 colour Graphics frame buffer. There were many additions to the Sharp MZ series to allow graphics (ie. MZ80B comes with standard mono graphics) display and as I don’t have detailed information of these 3rd party upgrades to date, I designed my own extension compatible with the standard Sharp MZ series video and graphics logic with the intention of adding hardware abstraction layers at a later date to add compatibility to support external vendor add-ons.
-
-This frame buffer is made up of 3x16K RAM blocks, 1 per colour with a resolution of 640x200 which matches the output display buffer bit for bit. If the display is working at 40x25 characters then the resolution is 320x200, otherwise for 80x25 it is 640x200.
-
-The RAM for the Graphics frame buffer can be switched into the main CPU address range C000H – FFFFH by programmable registers, 1 bank at a time (ie. Red, Green, Blue banks). This allows for direct CPU addressable pixels to be read and/or written. Each pixel is stored in groups of 8 (1 byte in RAM) scanning from right to left per byte, left to right per row, top to bottom. Ie. if the Red bank is mapped into CPU address space, the byte at C000H represents pixels 7 - 0 of 320/640 (X) at pixel 0 of 200 (Y). Thus 01H written to C000H would set Pixel 7 (X) on Row 0 (Y). This applies for Green and Blue banks when mapped into CPU address space.
-
-In order to speed up the display, there is a Colour Write register, so that a write to the graphics RAM will update all 3 banks at the same time.
-
-The programmable registers details are outlined below.
-
-### Switching Graphics RAM Banks into Z80 CPU Address Range
-
-#### Graphics Bank Switch Set Register: I/O Address: E8H (232 decimal)
-
-  A read from this address switches in 1 of the 16Kb Graphics RAM pages (of the 3 pages) to C000 - FFFF. The bank which is switched in is set in the Control Register by bits 1/0 for Read operations and 3/2 for Write operations. This bank switch overrides all MZ80A/MZ700 page switching functions.
-
-#### Graphics Bank Switch Reset Register: I/O Address: E9H (233 decimal)
-
-   A read from this address switches out the Graphics RAM and returns to previous memory state.
-
-### Control Register (0xEA - 234 decimal)
-
-|  Bits   | Description                                                                                                                                |
-|  ----   | -----------                                                                                                                                |
-|  1:0    | Read mode (00=Red Bank, 01=Green Bank, 10=Blue Bank, 11=Not used). Select which bank to be read when enabled in CPU address space.         |
-|  3:2    | Write mode (00=Red Bank, 01=Green Bank, 10=Blue Bank, 11=Indirect). Select which bank to be written to when enabled in CPU address space.  |
-|  4      | VRAM Output. 0=Enable, 1=Disable. Output Character RAM to the display.                                                                     |
-|  5      | GRAM Output. 0=Enable, 1=Disable. Output Graphics RAM to the display.                                                                      |
-|  7:6    | Blend Operator (00=OR ,01=AND, 10=NAND, 11=XOR). Operator to blend Character display with Graphics Display.                                |
-
-### Colour Writer Registers (0xEB - 235 decimal to 0xED - 237 decimal )
-
-| Bit  | Pixel  | I/O Addr | Colour    | Description                        |
-| ---  | -----  | -------- | ------    | -----------                        |
-| 0    | 7      | 0xEBH    | Red       | Set to Red during indirect write.  |
-| 1    | 6      | 0xEBH    | Red       |                                    |
-| 2    | 5      | 0xEBH    | Red       |                                    |
-| 3    | 4      | 0xEBH    | Red       |                                    |
-| 4    | 3      | 0xEBH    | Red       |                                    |
-| 5    | 2      | 0xEBH    | Red       |                                    |
-| 6    | 1      | 0xEBH    | Red       |                                    |
-| 7    | 0      | 0xEBH    | Red       | Set to Red during indirect write.  |
-| 0    | 7      | 0xECH    | Green     | Set to Green during indirect write.|
-| 1    | 6      | 0xECH    | Green     |                                    |
-| 2    | 5      | 0xECH    | Green     |                                    |
-| 3    | 4      | 0xECH    | Green     |                                    |
-| 4    | 3      | 0xECH    | Green     |                                    |
-| 5    | 2      | 0xECH    | Green     |                                    |
-| 6    | 1      | 0xECH    | Green     |                                    |
-| 7    | 0      | 0xECH    | Green     | Set to Green during indirect write.|
-| 0    | 7      | 0xEDH    | Blue      | Set to Blue during indirect write. |
-| 1    | 6      | 0xEDH    | Blue      |                                    |
-| 2    | 5      | 0xEDH    | Blue      |                                    |
-| 3    | 4      | 0xEDH    | Blue      |                                    |
-| 4    | 3      | 0xEDH    | Blue      |                                    |
-| 5    | 2      | 0xEDH    | Blue      |                                    |
-| 6    | 1      | 0xEDH    | Blue      |                                    |
-| 7    | 0      | 0xEDH    | Blue      | Set to Blue during indirect write. |
-
-For Indirect mode (Control Register bits 3/2 set to 11), a write to the Graphics RAM when mapped into CPU address space C000H – FFFFH will see the byte masked by the Red Colour Writer Register and written to the Red Bank with the same operation for Green and Blue. This allows rapid setting of a colour across the 3 banks.
-
-### Status Frame Buffer
-
-As part of the changes being made to the emulator with the intended onboarding of an I/O processor into the design, I have added an additional frame buffer which occupies the vertical lines outside of the normal screen rendering. ie. For a 640x480 VGA display, there are 80 rows available that can be seen on the screen, 40 above the main display and 40 below. This increases to 100 above and 100 below for 800x600 SVGA mode. The status frame buffer also overlays (programmable OR, XOR, AND & NAND bit blending) a block of video RAM on the main display to bring up a MiSTer style menu, the width and height varying according to the graphics mode selected. The menu is 256pixels hortizontal x 128pixels vertical.
-
-The purpose of this status frame buffer is to allow the on board IO processor to have the ability to superimpose its own menu system without affecting the underlying emulator and to also display valued information, such as: Record, Play, QuickDisk, Floppy activity lights and status etc. This will then allow the emulator to be fully standalone and thus reducing the requirements from the MiSTer Main binary and increase its ability to run on various other FPGA development boards.
-
-The status frame buffer control exists outside of the emulator domain and can only be accessed via the IOCTL mechanism used in the MiSTer design. This lends itself to be easily adapted to an IO processor.
-
-Addresses of the status frame buffer:
-
-  | RAM    | Address  | Description |
-  | ---    | -------  | ----------- |
-  | Status | 0x320000 | This is the RAM holding the pixels for the screen area above and below the emulator output, ie. 80col mode = 640x200, running in VGA timing this RAM holds the pixels for the top 40 and bottom 40 rows, each row being 640 pixels. |
-  | Menu   | 0x322000 | This is the RAM holding the overlayed Menu which is 256x128 pixels. |
-  | Control| 0x324000 | Read the video parameter array to find all the timing values. This is a 32 x 32 array, bits 4:0 select the parameter, bits 9:5 select the mode entry. See example parameter table below. |
-  | Mode   | 0x324400 | Read the current live video mode. |
-
-For both the Status RAM and Menu RAM the memory width is 24 bits wide for 8 pixels in 8 colours.
-
-  | Bits   | Colour   | Information |
-  | ----   | ------   | ----------- |
-  |  7:0   | Green    | bit 7 is the left most visible pixel.  |
-  | 15:8   | Red      | bit 15 is the left most visible pixel. |
-  | 23:15  | Blue     | bit 23 is the left most visible pixel. |
-  |        |          | Lowest memory address is the first starting pixel block, ie. 0x320000 bit 7+bit 15 + bit 23 = first status pixel. |
-
-Example table of video parameters. The actual live values can be read from Control by the IO Processor (or MiSTer Main when no IO processor is embedded):
-
-|  Mode  | Description                                                                                                             |    H_DSP_START |      H_DSP_END |H_DSP_WND_START |  H_DSP_WND_END |    H_MNU_START |      H_MNU_END |    H_HDR_START |      H_HDR_END |    H_FTR_START |      H_FTR_END |    V_DSP_START |      V_DSP_END |V_DSP_WND_START |  V_DSP_WND_END |    V_MNU_START |      V_MNU_END |    V_HDR_START |      V_HDR_END |    V_FTR_START |      V_FTR_END |     H_LINE_END |     V_LINE_END | MAX_COLUMNS |              H_SYNC_START |                  H_SYNC_END |               V_SYNC_START |                   V_SYNC_END |           H_PX |             V_PX |
-|  ----  | -----------                                                                                                             |    ----------- |      --------- |--------------- |  ------------- |    ----------- |      --------- |    ----------- |      --------- |    ----------- |      --------- |    ----------- |      --------- |--------------- |  ------------- |    ----------- |      --------- |    ----------- |      --------- |    ----------- |      --------- |     ---------- |     ---------- | ----------- |              ------------ |                  ---------- |               ------------ |                   ---------- |           ---- |             ---- |
-|     0  | MZ80B/2000 machines have a monochrome 60Hz display  with scan of 512 x 260 for a 320x200 viewable area in 40Char mode.  |              0 |            320 |              0 |            320 |             32 |            288 |              0 |              0 |              0 |              0 |              0 |            200 |              0 |            200 |             36 |            164 |              0 |              0 |              0 |              0 |            511 |            259 |          40 |                320  + 73  |              320 + 73  + 45 |                   200 + 19 |                 200 + 19 + 4 |              0 |               0) |
-|     1  | MZ80B/2000 machines have a monochrome 60Hz display  with scan of 1024 x 260 for a 640x200 viewable area in 80Char mode. |              0 |            640 |              0 |            640 |            192 |            448 |              0 |              0 |              0 |              0 |              0 |            200 |              0 |            200 |             36 |            164 |              0 |              0 |              0 |              0 |           1023 |            259 |          80 |                640  + 146 |              640 + 146 + 90 |                   200 + 19 |                 200 + 19 + 4 |              0 |               0) |
-|     2  | MZ80K/C/1200/A machines have a monochrome 60Hz display  with scan of 512 x 260 for a 320x200 viewable area.             |              0 |            320 |              0 |            320 |             32 |            288 |              0 |              0 |              0 |              0 |              0 |            200 |              0 |            200 |             36 |            164 |              0 |              0 |              0 |              0 |            511 |            259 |          40 |                320  + 73  |              320 + 73  + 45 |                   200 + 19 |                 200 + 19 + 4 |              0 |               0) |
-|     3  | MZ80K/C/1200/A machines with an adapted monochrome 60Hz display  with scan of 1024 x 260 for a 640x200 viewable area.   |              0 |            640 |              0 |            640 |            192 |            448 |              0 |              0 |              0 |              0 |              0 |            200 |              0 |            200 |             36 |            164 |              0 |              0 |              0 |              0 |           1023 |            259 |          80 |                640  + 146 |              640 + 146 + 90 |                   200 + 19 |                 200 + 19 + 4 |              0 |               0) |
-|     4  | MZ700 has a colour 50Hz display  with scan of 568 x 320 for a 320x200 viewable area.                                    |              0 |            320 |              0 |            320 |             32 |            288 |              0 |              0 |              0 |              0 |              0 |            200 |              0 |            200 |             36 |            164 |              0 |              0 |              0 |              0 |            567 |            311 |          40 |                320  + 80  |              320 + 80  + 40 |                   200 + 45 |                 200 + 45 + 3 |              0 |               0) |
-|     5  | MZ700 has colour 50Hz display  with scan of 1136 x 320 for a 640x200 viewable area.                                     |              0 |            640 |              0 |            640 |            192 |            448 |              0 |              0 |              0 |              0 |              0 |            200 |              0 |            200 |             36 |            164 |              0 |              0 |              0 |              0 |           1134 |            311 |          80 |                640  + 160 |              640 + 160 + 80 |                   200 + 45 |                 200 + 45 + 3 |              0 |               0) |
-|     6  | MZ80K/C/1200/A machines with MZ700 style colour @ 60Hz display  with scan of 512 x 260 for a 320x200 viewable area.     |              0 |            320 |              0 |            320 |             32 |            288 |              0 |              0 |              0 |              0 |              0 |            200 |              0 |            200 |             36 |            164 |              0 |              0 |              0 |              0 |            511 |            259 |          40 |                320  + 73  |              320 + 73  + 45 |                   200 + 19 |                 200 + 19 + 4 |              0 |               0) |
-|     7  | MZ80K/C/1200/A machines with MZ700 style colour @ 60Hz display  with scan of 1024 x 260 for a 640x200 viewable area.    |              0 |            640 |              0 |            640 |            192 |            448 |              0 |              0 |              0 |              0 |              0 |            200 |              0 |            200 |             36 |            164 |              0 |              0 |              0 |              0 |           1023 |            259 |          80 |                640  + 146 |              640 + 146 + 90 |                   200 + 19 |                 200 + 19 + 4 |              0 |               0) |
-|     8  | 640x480  @ 60Hz timings for 40Char mode monochrome.                                                                     |              0 |            640 |              0 |            640 |            192 |            448 |              0 |            640 |              0 |            640 |              0 |            480 |             39 |            439 |            111 |            367 |              8 |             24 |            444 |            479 |            831 |            519 |          40 |                640  + 16  |              640 + 16  + 96 |                   480 + 10 |                 480 + 10 + 2 |              1 |               1) |
-|     9  | 640x480  @ 60Hz timings for 40Char mode monochrome.                                                                     |              0 |            640 |              0 |            640 |            192 |            448 |              0 |            640 |              0 |            640 |              0 |            480 |             39 |            439 |            111 |            367 |              8 |             24 |            444 |            479 |            799 |            524 |          40 |                640  + 16  |              640 + 16  + 96 |                   480 + 10 |                 480 + 10 + 2 |              1 |               1) |
-|     10 | 640x480  @ 60Hz timings for 80Char mode monochrome.                                                                     |              0 |            640 |              0 |            640 |            192 |            448 |              0 |            640 |              0 |            640 |              0 |            480 |             39 |            439 |            111 |            367 |              8 |             24 |            444 |            479 |            831 |            508 |          80 |                640  + 16  |              640 + 16  + 96 |                   480 + 10 |                 480 + 10 + 2 |              0 |               1) |
-|     11 | 640x480  @ 60Hz timings for 80Char mode monochrome.                                                                     |              0 |            640 |              0 |            640 |            192 |            448 |              0 |            640 |              0 |            640 |              0 |            480 |             39 |            439 |            111 |            367 |              8 |             24 |            444 |            479 |            799 |            524 |          80 |                640  + 16  |              640 + 16  + 96 |                   480 + 10 |                 480 + 10 + 2 |              0 |               1) |
-|     12 | 640x480  @ 60Hz timings for 80Char mode colour.                                                                         |              0 |            640 |              0 |            640 |            192 |            448 |              0 |            640 |              0 |            640 |              0 |            480 |             39 |            439 |            111 |            367 |              8 |             24 |            444 |            479 |            831 |            508 |          40 |                640  + 16  |              640 + 16  + 96 |                   480 + 10 |                 480 + 10 + 2 |              1 |               1) |
-|     13 | 640x480  @ 60Hz timings for 40Char mode colour.                                                                         |              0 |            640 |              0 |            640 |            192 |            448 |              0 |            640 |              0 |            640 |              0 |            480 |             39 |            439 |            111 |            367 |              8 |             24 |            444 |            479 |            799 |            524 |          40 |                640  + 16  |              640 + 16  + 96 |                   480 + 10 |                 480 + 10 + 2 |              1 |               1) |
-|     14 | 640x480  @ 60Hz timings for 80Char mode colour.                                                                         |              0 |            640 |              0 |            640 |            192 |            448 |              0 |            640 |              0 |            640 |              0 |            480 |             39 |            439 |            111 |            367 |              8 |             24 |            444 |            479 |            831 |            508 |          80 |                640  + 16  |              640 + 16  + 96 |                   480 + 10 |                 480 + 10 + 2 |              0 |               1) |
-|     15 | 640x480  @ 60Hz timings for 80Char mode colour.                                                                         |              0 |            640 |              0 |            640 |            192 |            448 |              0 |            640 |              0 |            640 |              0 |            480 |             39 |            439 |            111 |            367 |              8 |             24 |            444 |            479 |            799 |            524 |          80 |                640  + 16  |              640 + 16  + 96 |                   480 + 10 |                 480 + 10 + 2 |              0 |               1) |
-|     16 | 640x480  @ 72Hz timings for 40Char mode monochrome.                                                                     |              0 |            640 |              0 |            640 |            192 |            448 |              0 |            640 |              0 |            640 |              0 |            480 |             39 |            439 |            111 |            367 |              8 |             24 |            444 |            479 |            831 |            519 |          40 |                640  + 24  |              640 + 24  + 40 |                   480 + 9 |                  480 +  9 + 2 |              1 |               1) |
-|     17 | 640x480  @ 72Hz timings for 80Char mode monochrome.                                                                     |              0 |            640 |              0 |            640 |            192 |            448 |              0 |            640 |              0 |            640 |              0 |            480 |             39 |            439 |            111 |            367 |              8 |             24 |            444 |            479 |            831 |            519 |          80 |                640  + 24  |              640 + 24  + 40 |                   480 + 9 |                  480 +  9 + 2 |              0 |               1) |
-|     18 | 640x480  @ 72Hz timings for 40Char mode colour.                                                                         |              0 |            640 |              0 |            640 |            192 |            448 |              0 |            640 |              0 |            640 |              0 |            480 |             39 |            439 |            111 |            367 |              8 |             24 |            444 |            479 |            831 |            519 |          40 |                640  + 24  |              640 + 24  + 40 |                   480 + 9 |                  480 +  9 + 2 |              1 |               1) |
-|     19 | 640x480  @ 72Hz timings for 80Char mode colour.                                                                         |              0 |            640 |              0 |            640 |            192 |            448 |              0 |            640 |              0 |            640 |              0 |            480 |             39 |            439 |            111 |            367 |              8 |             24 |            444 |            479 |            831 |            519 |          80 |                640  + 24  |              640 + 24  + 40 |                   480 + 9 |                  480 +  9 + 2 |              0 |               1  |
+* **FPGA:** open `SharpMZ.qpf` in Quartus Prime Lite 17.0 and compile.
+* **Simulation:** `verilator/` runs the core headless with GHDL and Verilator: boot any model, type at it, load and save tapes, and write screenshots. `make test` runs the regression tests. See `verilator/README.md`.
+* **Status and open work:** `TODO.md`. **Design notes:** `docs/design.md`.
 
 ## Links
 

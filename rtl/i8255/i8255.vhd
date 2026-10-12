@@ -231,10 +231,12 @@ begin
                             if (DI(7) = '0') then -- set/clr
                                 R_PORTC     <= R_PORTC_masked or R_PORTC_setclr;
                             else
-                                --MODE_CLEAR <= '1';
-                                --R_PORTA        <= x"00";
-                                --R_PORTB        <= x"00"; -- clear port b input reg
-                                --R_PORTC        <= x"00"; -- clear control sigs
+                                -- A mode set clears all output latches (8255 datasheet). The MZ-800 relies on it:
+                                -- PC2 masks the 8253 OUT2 interrupt, and CP/M 1.x sets the mode and leaves PC2 alone.
+                                MODE_CLEAR  <= '1';
+                                R_PORTA     <= x"00";
+                                R_PORTB     <= x"00";
+                                R_PORTC     <= x"00";
                                 R_CONTROL   <= DI; -- load new mode
                             end if;
                         when others => null;

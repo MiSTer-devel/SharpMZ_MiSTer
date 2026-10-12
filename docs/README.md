@@ -1,3 +1,5 @@
+> **Note:** this is the original author's documentation for his v1 core (with its custom sys, Main_MiSTer driver, menu queue and VGA scaling), kept for reference. For this standard MiSTer version see [../README.md](../README.md), [design.md](design.md) and [../TODO.md](../TODO.md).
+
 <br>
 This project aims to provide full hardware emulation (along with extensions) of the Sharp MZ Series Computers. 
 
@@ -86,7 +88,13 @@ This menu controls the hardware CMT unit and has the following choices:
   This option allows you to load an MZF format tape file (ie. 128 bytes header + code) directly into RAM. It uses the Load Address and Size stored in the header in order to correctly 
   locate the code and also stores the header in the Cassette Work area at 10F0H. After load is completed and warm reset is made, the details of the tape are displayed on-screen. In 
   order to run the loaded program, simply issue the correct monitor command, ie. J1200 (Jump to 1200H where 1200H is shown as the Execution Address in the tape summary).
+  (Standard core: with Tape > Load Direct: Start Program, the default, the core starts a machine-code program itself
+  after the boot; see the top-level README.)
 - Queue Tape
+
+  (Standard core: there is no queue. The Tape Image slot replaces it: mount an `.mzt` with several programs; the next
+  one is loaded each time the machine stops the tape, and the MZ-80B/2000 APSS controls move between programs. See the
+  top-level README.)
 
   A real cassette has 1 or more programs stored on it sequentially. The emulation cache only stores 1 full program so this is a mechanism to line up multiple programs and they will 
   be fed into the emulation cache as it becomes empty, thus simulating a real cassette. Selecting this option presents you with a directory listing of all MZF files. Choose one per 

@@ -99,3 +99,9 @@ ${ROMTOOL} --command=CGROM                                  \
            --20_cgrom=${ROMDIR}/MZFONT.rom                  \
            --binout=${ROMDIR}/combined_cgrom.rom            \
            --mifout=${MIFDIR}/combined_cgrom.mif
+
+# ROMs outside romtool's layout: MZ-800 ROM and CG, MZ-700 FD ROM.
+python3 $(dirname $0)/patch_roms.py ${ROMDIR} ${MIFDIR}
+
+# Keymap fixes: MZ-700/MZ-800 layout (mz800emu) and extended keys.
+python3 $(dirname $0)/fix_keymap.py ${ROMDIR} ${MIFDIR}

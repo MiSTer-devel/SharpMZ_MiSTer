@@ -69,6 +69,14 @@ entity cmt is
         IOCTL_DOUT           : in  std_logic_vector(31 downto 0);        -- HPS Data to be written into FPGA.
         IOCTL_DIN            : out std_logic_vector(31 downto 0);        -- HPS Data to be read into HPS.
 
+        -- Tape data buffer (64 KB, in DDR3: rtl/tape_ddr.sv). The host side of it (downloads, saves) is wired
+        -- around this module; IOCTL writes to the data region still reach it for the PLAY_READY timing.
+        TAPEDATA_ADDR        : out std_logic_vector(15 downto 0);
+        TAPEDATA_DOUT        : out std_logic_vector(7 downto 0);         -- Byte to write (recording).
+        TAPEDATA_WE          : out std_logic;
+        TAPEDATA_DIN         : in  std_logic_vector(7 downto 0);         -- Byte at TAPEDATA_ADDR when READY.
+        TAPEDATA_READY       : in  std_logic;
+
         -- Debug Status Leds
         DEBUG_STATUS_LEDS    : out std_logic_vector(31 downto 0)         -- 32 leds to display cmt internal status.
     );
@@ -119,7 +127,10 @@ signal IOCTL_DIN_ASCII       :     std_logic_vector(7 downto 0);
 -- CMT Control signals.
 signal CMT_BUS_OUTi          :     std_logic_vector(CMT_BUS_OUT_WIDTH);      -- CMT bus output.
 signal BUTTONS_LAST          :     std_logic_vector(1 downto 0);             -- Virtual buttons last sample, used to detect changes.
-signal PLAY_READY_SET_CNT    :     integer range 0 to 32000000   := 0;       -- 1 second timer from last cache upload to PLAY_READY being set.
+constant PLAY_READY_CLKS     :     natural := CLK_SYS_HZ / 2;              -- Quiet time after the last tape buffer write before PLAY_READY.
+signal PLAY_READY_SET_CNT    :     integer range 0 to PLAY_READY_CLKS := 0; -- Timer from the last cache upload to PLAY_READY being set.
+signal PLAY_READY_PLAYL      :     std_logic;                                -- PLAY_READY a CPU clock ago (read FSM).
+signal PLAY_READY_CLR_LAST   :     std_logic;                                -- PLAY_READY_CLR a clock ago (edge detect).
 signal PLAY_READY_CLR_CNT    :     unsigned(21 downto 0);                    -- 2 second timer from motor being stopped to PLAY_READY being cleared.
 signal PLAY_READY            :     std_logic;                                -- Cache loaded, playback ready to commence.
 signal PLAY_READY_CLR        :     std_logic;                                -- Clear PLAY_READY signal.
@@ -131,6 +142,15 @@ signal RECORD_READY_SEQ      :     std_logic_vector(1 downto 0);             -- 
 signal RECORD_BUTTON         :     std_logic;                                -- Virtual Record button.
 signal RECORDING             :     std_logic;                                -- Signal indicating a Record is underway, Active = 1.
 signal RECSEQ                :     std_logic_vector(2 downto 0);             -- Signal, 3 cycles, indicating 
+signal ST_APSS_DIR            :     std_logic;                                -- CMT_BUS_OUT(APSS_DIR), registered in the state process.
+signal ST_APSS_EJECT          :     std_logic;                                -- CMT_BUS_OUT(APSS_EJECT), registered in the state process.
+signal ST_APSS_PLAY           :     std_logic;                                -- CMT_BUS_OUT(APSS_PLAY), registered in the state process.
+signal ST_APSS_SEEK           :     std_logic;                                -- CMT_BUS_OUT(APSS_SEEK), registered in the state process.
+signal ST_APSS_STOP           :     std_logic;                                -- CMT_BUS_OUT(APSS_STOP), registered in the state process.
+signal ST_TAPEREADY           :     std_logic;                                -- CMT_BUS_OUT(TAPEREADY), registered in the state process.
+signal ST_WRITEREADY          :     std_logic;                                -- CMT_BUS_OUT(WRITEREADY), registered in the state process.
+signal STOP_LAST             :     std_logic;                                -- STOP sampled last CPU cycle (MZ-80B/2000 edge commands).
+signal REEL_LAST             :     std_logic;                                -- REEL_MOTOR sampled last CPU cycle.
 signal MOTOR_TOGGLE          :     std_logic_vector(1 downto 0);             -- Signal indicating if the MZ wants to start or toggle the motor.
 signal APSS_TIMER_CNT        :     unsigned(20 downto 0);                    -- 1 second virtual APSS SEEK time.
 signal WRITEBIT              :     std_logic;                                -- Tape data signal sent to the MZ (for playback).
@@ -227,6 +247,15 @@ begin
     CMT_BUS_OUTi(pkgs.mctrl_pkg.PLAYING)      <= PLAYING(2);
     CMT_BUS_OUTi(pkgs.mctrl_pkg.RECORD_READY) <= RECORD_READY;
     CMT_BUS_OUTi(pkgs.mctrl_pkg.RECORDING)    <= RECORDING;
+    -- State bits registered in the CMT state process. Each element of CMT_BUS_OUTi has one driver: GHDL
+    -- synthesis lost the process writes when the vector was split between a process and these assignments.
+    CMT_BUS_OUTi(pkgs.mctrl_pkg.APSS_DIR)    <= ST_APSS_DIR;
+    CMT_BUS_OUTi(pkgs.mctrl_pkg.APSS_EJECT)  <= ST_APSS_EJECT;
+    CMT_BUS_OUTi(pkgs.mctrl_pkg.APSS_PLAY)   <= ST_APSS_PLAY;
+    CMT_BUS_OUTi(pkgs.mctrl_pkg.APSS_SEEK)   <= ST_APSS_SEEK;
+    CMT_BUS_OUTi(pkgs.mctrl_pkg.APSS_STOP)   <= ST_APSS_STOP;
+    CMT_BUS_OUTi(pkgs.mctrl_pkg.TAPEREADY)   <= ST_TAPEREADY;
+    CMT_BUS_OUTi(pkgs.mctrl_pkg.WRITEREADY)  <= ST_WRITEREADY;
     --
     READBIT                                   <= CMT_BUS_IN(pkgs.mctrl_pkg.READBIT); -- Read a bit from the MZ PIO.
     MOTOR_TOGGLE(1)                           <= CMT_BUS_IN(PLAY);
@@ -263,7 +292,7 @@ begin
     -- Storage of the tape header for play and record operations.
     TAPEHDR : dpram
     GENERIC MAP (
-        init_file            => null,
+        init_file            => "",
         widthad_a            => 7,
         width_a              => 8,
         widthad_b            => 7,
@@ -287,28 +316,11 @@ begin
     -- Data Cache RAM.
     -- Storage of the tape data for play and record operations.
     -- Maximum size of 64K as this is the limit that can be accommodated by the MZ software.
-    TAPEDATA : dpram
-    GENERIC MAP (
-        init_file            => null,
-        widthad_a            => 16,
-        width_a              => 8,
-        widthad_b            => 16,
-        width_b              => 8
-    )
-    PORT MAP (
-        clock_a              => CLKBUS(CKMASTER), --CLKBUS(CKMEM),
-        clocken_a            => '1',
-        address_a            => RAM_ADDR,
-        data_a               => RAM_DATAIN,
-        wren_a               => DATA_RAM_WEN,
-        q_a                  => DATA_RAM_DATAOUT,
-
-        clock_b              => IOCTL_CLK,
-        address_b            => IOCTL_ADDR(15 downto 0),
-        data_b               => IOCTL_DOUT(7 downto 0),
-        wren_b               => IOCTL_TAPEDATA_WEN,
-        q_b                  => IOCTL_DIN_DATA
-    );
+    TAPEDATA_ADDR            <= RAM_ADDR;
+    TAPEDATA_DOUT            <= RAM_DATAIN;
+    TAPEDATA_WE              <= DATA_RAM_WEN;
+    DATA_RAM_DATAOUT         <= TAPEDATA_DIN;
+    IOCTL_DIN_DATA           <= (others => '0');                         -- Host reads of the data region come from tape_ddr.
 
     -- Sharp Ascii <-> Ascii conversion table.
     -- Filenames are generally in Sharp Ascii format which is incompatible with modern
@@ -401,11 +413,11 @@ begin
             RECORDING                               <= '0';
             MOTOR_TOGGLE(0)                         <= '0';
             APSS_TIMER_CNT                          <= (others => '0');
-            CMT_BUS_OUTi(APSS_SEEK)                 <= '0';
-            CMT_BUS_OUTi(APSS_DIR)                  <= '0';
-            CMT_BUS_OUTi(APSS_EJECT)                <= '0';
-            CMT_BUS_OUTi(APSS_PLAY)                 <= '0';
-            CMT_BUS_OUTi(APSS_STOP)                 <= '1';
+            ST_APSS_SEEK                 <= '0';
+            ST_APSS_DIR                  <= '0';
+            ST_APSS_EJECT                <= '0';
+            ST_APSS_PLAY                 <= '0';
+            ST_APSS_STOP                 <= '1';
 
         elsif CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER)='1' then
 
@@ -414,6 +426,8 @@ begin
                 -- Store last state so we detect change.
                 BUTTONS_LAST                            <= CONFIG(BUTTONS);
                 MOTOR_TOGGLE(0)                         <= MOTOR_TOGGLE(1);
+                STOP_LAST                               <= CMT_BUS_IN(pkgs.mctrl_pkg.STOP);
+                REEL_LAST                               <= CMT_BUS_IN(REEL_MOTOR);
     
                 -- Store last state so we can detect a switch to recording or play mode.
                 PLAYING(1 downto 0)                     <= PLAYING(2 downto 1);
@@ -431,22 +445,23 @@ begin
                                 PLAY_BUTTON             <= '0';
                                 RECORD_BUTTON           <= '0';
                                 TAPE_MOTOR_ON_n         <= '1';
-                                CMT_BUS_OUTi(TAPEREADY) <= '1';                         -- Indicates tape ejected.
-                                CMT_BUS_OUTi(WRITEREADY)<= '1';                         -- Indicates write mechanism disabled.
+                                ST_TAPEREADY <= '1';                         -- Indicates tape ejected.
+                                ST_WRITEREADY<= '1';                         -- Indicates write mechanism disabled.
                             when "10" => -- Record
                                 PLAY_BUTTON             <= '0';
                                 RECORD_BUTTON           <= '1';
                                 TAPE_MOTOR_ON_n         <= '0';
-                                CMT_BUS_OUTi(TAPEREADY) <= '0';                         -- Indicates tape loaded, active Low.
-                                CMT_BUS_OUTi(WRITEREADY)<= '1';                         -- Indicates write mechanism enabled.
+                                ST_TAPEREADY <= '0';                         -- Indicates tape loaded, active Low.
+                                ST_WRITEREADY<= '1';                         -- Indicates write mechanism enabled.
                             when "01"|"11" => -- Play/Auto
                                 -- Assume playback mode for Auto unless activity is detected from the MZ,
                                 -- in which case switch to Recording.
                                 PLAY_BUTTON             <= '1';
                                 RECORD_BUTTON           <= '0';
                                 TAPE_MOTOR_ON_n         <= '0';
-                                CMT_BUS_OUTi(TAPEREADY) <= '0';                         -- Indicates tape loaded, active Low.
-                                CMT_BUS_OUTi(WRITEREADY)<= '0';                         -- Indicates write mechanism disabled.
+                                ST_TAPEREADY <= '0';                         -- Indicates tape loaded, active Low.
+                                ST_WRITEREADY<= '0';                         -- Indicates write mechanism disabled.
+                            when others => null;
                         end case;
                     end if;
     
@@ -463,7 +478,7 @@ begin
                         if RCV_SEQ = "11" or RECORDING = '1' then
                             PLAY_BUTTON                 <= '0';
                             RECORD_BUTTON               <= '1';
-                            CMT_BUS_OUTi(WRITEREADY)    <= '1';                         -- Indicates write mechanism disabled.
+                            ST_WRITEREADY    <= '1';                         -- Indicates write mechanism disabled.
                         else
                             PLAY_BUTTON                 <= '1';
                             RECORD_BUTTON               <= '0';
@@ -495,47 +510,48 @@ begin
                 else
                     -- Tape is always ready and able to write.
                     --
-                    CMT_BUS_OUTi(TAPEREADY)             <= '0';                         -- Indicates tape loaded, active low.
-                    CMT_BUS_OUTi(WRITEREADY)            <= '1';                         -- Indicates write mechanism disabled.
+                    ST_TAPEREADY             <= '0';                         -- Indicates tape loaded, active low.
+                    ST_WRITEREADY            <= '1';                         -- Indicates write mechanism disabled.
     
                     -- If seek pulses high, store the direction.
                     --
                     if CMT_BUS_IN(pkgs.mctrl_pkg.SEEK) = '1' then
-                        CMT_BUS_OUTi(APSS_DIR)          <= CMT_BUS_IN(pkgs.mctrl_pkg.DIRECTION);
+                        ST_APSS_DIR          <= CMT_BUS_IN(pkgs.mctrl_pkg.DIRECTION);
                     end if;
         
                     -- If Eject goes active, latch and invert it for reading.
                     --
                     if CMT_BUS_IN(pkgs.mctrl_pkg.EJECT) = '0' then
-                        CMT_BUS_OUTi(APSS_EJECT)        <= '1';
-                        CMT_BUS_OUTi(APSS_SEEK)         <= '0';
-                        CMT_BUS_OUTi(APSS_PLAY)         <= '0';
-                        CMT_BUS_OUTi(APSS_STOP)         <= '0';
+                        ST_APSS_EJECT        <= '1';
+                        ST_APSS_SEEK         <= '0';
+                        ST_APSS_PLAY         <= '0';
+                        ST_APSS_STOP         <= '0';
                     end if;
         
-                    -- The play motor is started/stopped by the PLAY/STOP signals.
+                    -- The deck acts on rising edges of PLAY, STOP and REEL_MOTOR (as MAME's mz80b/mz2000 do). The MZ-80B
+                    -- IPL only pulses them, but the MZ-2200 IPL leaves STOP high and starts the tape with a PLAY edge.
                     --
-                    if MOTOR_TOGGLE = "11"  and CMT_BUS_IN(pkgs.mctrl_pkg.STOP) = '0' then
+                    if MOTOR_TOGGLE = "10" then
                         TAPE_MOTOR_ON_n                 <= '0';
-                        CMT_BUS_OUTi(APSS_PLAY)         <= '1';
-                        CMT_BUS_OUTi(APSS_EJECT)        <= '0';
-                        CMT_BUS_OUTi(APSS_SEEK)         <= '0';
-                        CMT_BUS_OUTi(APSS_STOP)         <= '0';
+                        ST_APSS_PLAY         <= '1';
+                        ST_APSS_EJECT        <= '0';
+                        ST_APSS_SEEK         <= '0';
+                        ST_APSS_STOP         <= '0';
     
-                    elsif MOTOR_TOGGLE /= "11" and CMT_BUS_IN(pkgs.mctrl_pkg.STOP) = '1' then
+                    elsif CMT_BUS_IN(pkgs.mctrl_pkg.STOP) = '1' and STOP_LAST = '0' then
                         TAPE_MOTOR_ON_n                 <= '1';
-                        CMT_BUS_OUTi(APSS_STOP)         <= '1';
-                        CMT_BUS_OUTi(APSS_PLAY)         <= '0';
-                        CMT_BUS_OUTi(APSS_EJECT)        <= '0';
-                        CMT_BUS_OUTi(APSS_SEEK)         <= '0';
+                        ST_APSS_STOP         <= '1';
+                        ST_APSS_PLAY         <= '0';
+                        ST_APSS_EJECT        <= '0';
+                        ST_APSS_SEEK         <= '0';
     
-                    -- If REEL_MOTOR pulses high, then engage APSS seek.
+                    -- A REEL_MOTOR edge starts an APSS seek in the direction latched by SEEK.
                     --
-                    elsif CMT_BUS_IN(REEL_MOTOR) = '1' then
-                        CMT_BUS_OUTi(APSS_SEEK)         <= '1';
-                        CMT_BUS_OUTi(APSS_EJECT)        <= '0';
-                        CMT_BUS_OUTi(APSS_PLAY)         <= '0';
-                        CMT_BUS_OUTi(APSS_STOP)         <= '0';
+                    elsif CMT_BUS_IN(REEL_MOTOR) = '1' and REEL_LAST = '0' then
+                        ST_APSS_SEEK         <= '1';
+                        ST_APSS_EJECT        <= '0';
+                        ST_APSS_PLAY         <= '0';
+                        ST_APSS_STOP         <= '0';
                         APSS_TIMER_CNT                  <= to_unsigned(1, 21);
                     end if;
     
@@ -545,13 +561,13 @@ begin
                         APSS_TIMER_CNT                  <= APSS_TIMER_CNT + 1;
                     end if;
                     if APSS_TIMER_CNT = X"FFFFF" then
-                        CMT_BUS_OUTi(APSS_SEEK)         <= '0';
+                        ST_APSS_SEEK         <= '0';
                     end if;
     
                     -- Update the status as to wether we are playing, recording or idle.
                     --
-                    PLAYING(2)                          <= PLAY_READY and CMT_BUS_OUTi(APSS_PLAY);
-                    RECORDING                           <= not CMT_BUS_IN(pkgs.mctrl_pkg.WRITEENABLE) and CMT_BUS_OUTi(APSS_PLAY);
+                    PLAYING(2)                          <= PLAY_READY and ST_APSS_PLAY;
+                    RECORDING                           <= not CMT_BUS_IN(pkgs.mctrl_pkg.WRITEENABLE) and ST_APSS_PLAY;
                 end if;
             end if;
         end if;
@@ -566,6 +582,7 @@ begin
         if RST = '1' then
             PLAY_READY                              <= '0';
             PLAY_READY_SET_CNT                      <= 0;
+            PLAY_READY_CLR_LAST                     <= '0';
             RECORD_READY                            <= '0';
             RECORD_READY_SEQ                        <= "00";
 
@@ -575,8 +592,12 @@ begin
             RECORD_READY_SEQ(0)                     <= RECORD_READY_SEQ(1);
             RECORD_READY_SEQ(1)                     <= RECORD_READY_SET;
 
-            -- If the external clear is triggered, reset ready signal.
-            if PLAY_READY_CLR = '1' then
+            -- If the external clear is triggered, reset ready signal. Only its rising edge: PLAY_READY_CLR stays high
+            -- for 64K CPU clocks, and the tape image loads the next record as soon as PLAY_READY drops, so a short
+            -- record (a 1.3 KB BASIC program after BASIC itself) was written entirely inside that window, every write
+            -- was overridden by the clear, the quiet timer never started and the record never became ready.
+            PLAY_READY_CLR_LAST                     <= PLAY_READY_CLR;
+            if PLAY_READY_CLR = '1' and PLAY_READY_CLR_LAST = '0' then
                 PLAY_READY                          <= '0';
                 PLAY_READY_SET_CNT                  <= 0;
 
@@ -585,8 +606,8 @@ begin
                 PLAY_READY                          <= '0';
                 PLAY_READY_SET_CNT                  <= 1;
 
-            -- 1 second timer, if no new writes have occurred to RAM, then set the ready flag.
-            elsif PLAY_READY_SET_CNT >= 32000000 then
+            -- Half a second without new writes to the buffer: set the ready flag.
+            elsif PLAY_READY_SET_CNT >= PLAY_READY_CLKS then
                 PLAY_READY_SET_CNT                  <= 0;
                 PLAY_READY                          <= '1';
             end if;
@@ -605,8 +626,9 @@ begin
                 RECORD_READY                        <= '0';
             end if;
 
-            -- Increment counters if enabled.
-            if PLAY_READY_SET_CNT >= 1 then
+            -- Increment counters if enabled (up to the quiet time, where the branch above sets PLAY_READY and
+            -- clears the counter; counting on past it left the declared range).
+            if PLAY_READY_SET_CNT >= 1 and PLAY_READY_SET_CNT < PLAY_READY_CLKS then
                 PLAY_READY_SET_CNT                  <= PLAY_READY_SET_CNT + 1;
             end if;
         end if;
@@ -896,8 +918,12 @@ begin
                     -- Pulse periods for MZ80C type machines
                     if CONFIG(MZ_KC) = '1' or CONFIG(MZ_A) = '1' then
                         RCV_CNT                         <= to_unsigned(736, 16);     -- 368uS @ 2Mhz
-                    elsif CONFIG(MZ700) = '1' then
-                        RCV_CNT                         <= to_unsigned(1302, 16);    -- 368uS @ 3.54MHz
+                    elsif (CONFIG(MZ700) = '1' or CONFIG(MZ800) = '1') then
+                        -- The 1Z-013A monitor writes pulses with a 676 T-state (short) or 1300 T-state (long) high
+                        -- phase and reads them back ~960-990 T-states after the rising edge (EDGE + DLY3, real Z80
+                        -- timing). The documented 368uS read point assumes 18 T-states per delay loop iteration
+                        -- instead of 14 and lands on the end of a long pulse, so recordings never decoded.
+                        RCV_CNT                         <= to_unsigned(988, 16);     -- ~279uS @ 3.54MHz
                     else
                         RCV_CNT                         <= to_unsigned(1020, 16);    -- 255uS @ 4MHz
                     end if;
@@ -1052,6 +1078,7 @@ begin
             PLAY_READY_CLR_CNT                      <= (others => '0');
             TAPE_READ_STATE                         <=  0;
             TAPE_READ_SEQ                           <= "000";
+            PLAY_READY_PLAYL                        <= '0';
             XMIT_PADDING_LOAD                       <= '0';
             XMIT_RAM_LOAD                           <= '0';
             XMIT_RAM_TYPE                           <= '0';
@@ -1059,6 +1086,8 @@ begin
         elsif CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER) = '1' then
 
             if CLKBUS(CKENCPU) = '1' then
+
+                PLAY_READY_PLAYL                    <= PLAY_READY;
 
                 -- 2 second after the tape motor goes off clear the PLAY_READY signal, indicating cache tape is no
                 -- longer in use.
@@ -1084,13 +1113,20 @@ begin
                 if PLAYING = "001" then
                     XMIT_PADDING_LOAD                   <= '0';
                     XMIT_RAM_LOAD                       <= '0';
-                    PLAY_READY_CLR_CNT                  <= to_unsigned(1, 22);
     
                     -- If the data block was received on first attempt, MZ will stop the motor, so skip the second block.
+                    -- Stopped after the header, the record waits for its data block however long the motor stays off
+                    -- (the MZ-2000 BASIC monitor prints LOADING and restarts the deck later than the timer below);
+                    -- only a finished record starts the timer that releases it for the next one.
                     if XMIT_RAM_TYPE = '0' and TAPE_READ_STATE > 6 and TAPE_READ_STATE < 15 then
                         TAPE_READ_STATE                 <= 14;
+                    -- Stopped in the gap before the data block (the MZ-2000 monitor stops the deck after the header
+                    -- while the gap is already playing): play the data block from its gap on the next PLAY.
+                    elsif XMIT_RAM_TYPE = '1' and TAPE_READ_STATE < 7 then
+                        TAPE_READ_STATE                 <= 0;
                     else
                         TAPE_READ_STATE                 <= 15;
+                        PLAY_READY_CLR_CNT              <= to_unsigned(1, 22);
                     end if;
     
                 -- Change in play state, start fsm to play out the ram contents when the HPS upload has completed.
@@ -1131,13 +1167,13 @@ begin
                                 -- Header = 0, Data = 1
                                 if XMIT_RAM_TYPE = '0' then
                                     -- Setup to send a Long Gap.
-                                    if CONFIG(MZ_80C) = '1' or CONFIG(MZ700) = '1' then
+                                    if CONFIG(MZ_80C) = '1' or (CONFIG(MZ700) = '1' or CONFIG(MZ800) = '1') then
                                         XMIT_PADDING_CNT1<= 22000;
                                     else
                                         XMIT_PADDING_CNT1<= 10000;
                                     end if;
                                 else
-                                    if CONFIG(MZ_80C) = '1' or CONFIG(MZ700) = '1' then
+                                    if CONFIG(MZ_80C) = '1' or (CONFIG(MZ700) = '1' or CONFIG(MZ800) = '1') then
                                         XMIT_PADDING_CNT1<= 11000;
                                     else
                                         XMIT_PADDING_CNT1<= 10000;
@@ -1236,11 +1272,23 @@ begin
                                 if XMIT_RAM_TYPE = '0' then
                                     XMIT_RAM_TYPE       <= '1';
                                     TAPE_READ_STATE     <= 0;
+                                else
+                                    -- The record is finished with the motor still on: release it as a motor stop would
+                                    -- (PLAY_READY drops after the timer and the tape image loads the next record).
+                                    PLAY_READY_CLR_CNT  <= to_unsigned(1, 22);
                                 end if;
         
                             -- Clear the Play Ready strobe and wait at this state until external actions reset the state.
+                            -- If the tape keeps running past the finished record (BASIC's LOAD "NAME" reading on to the
+                            -- next header), the next record follows as on a real tape: when the tape image has put it in
+                            -- the buffer (PLAY_READY up again), play it from its gap.
                             when 15 =>
-                                TAPE_READ_STATE         <= 15;
+                                if PLAY_READY = '1' and PLAY_READY_PLAYL = '0' then
+                                    TAPE_READ_STATE     <= 0;
+                                    XMIT_RAM_TYPE       <= '0';
+                                else
+                                    TAPE_READ_STATE     <= 15;
+                                end if;
                         end case;
                 end if;
             end if;
@@ -1304,6 +1352,16 @@ process( RST, CLKBUS(CKMASTER), XMIT_RAM_LOAD, XMIT_RAM_TYPE ) begin
                  XMIT_RAM_STATE                         <= 1;
                  XMIT_LOAD_2                            <= '0';
     
+            -- Tape stopped: abandon the block, as the padding process does. A block the MZ stops part way (the IPL
+            -- stops the deck after the first copy of the data, during the backup copy) used to run on to its end and
+            -- share the pulse encoder with the next record's gap: after MZ-2000 BASIC loaded from the IPL, the rest of
+            -- its 23 KB backup copy came out mixed into Puckn Boy's leader and the header arrived ~97 s late.
+            elsif XMIT_RAM_DONE = '0' and PLAYING = "000" then
+                XMIT_RAM_DONE                           <= '1';
+                XMIT_LOAD_2                             <= '0';
+                XMIT_BIT_2                              <= '0';
+                XMIT_RAM_STATE                          <= 0;
+
             -- If the DONE signal is low, then run the actual process, raising DONE when complete.
             elsif XMIT_RAM_DONE = '0' then
     
@@ -1311,6 +1369,10 @@ process( RST, CLKBUS(CKMASTER), XMIT_RAM_LOAD, XMIT_RAM_TYPE ) begin
                 case(XMIT_RAM_STATE) is
                     when 0 => 
                     when 1 =>
+                      -- The data buffer is in DDR3: wait until the byte at the new address has arrived.
+                      if XMIT_RAM_TYPE = '1' and XMIT_RAM_COUNT /= 0 and TAPEDATA_READY = '0' then
+                        XMIT_RAM_STATE                  <= 1;
+                      else
                         XMIT_RAM_BIT_CNT                <= 8;      -- 9 bits to transmit, pre 1 + 8 bits of data byte.
                         XMIT_RAM_STATE                  <= 3;
     
@@ -1336,6 +1398,7 @@ process( RST, CLKBUS(CKMASTER), XMIT_RAM_LOAD, XMIT_RAM_TYPE ) begin
                                 XMIT_RAM_SR             <= '1' & DATA_RAM_DATAOUT;
                             end if;
                         end if;
+                      end if;
                     -- Byte to be output is mapped via the Sharp Ascii <-> Ascii lookup table.
                     when 2 =>
                             XMIT_RAM_SR                 <= '1' & ASCII_RAM_DATAOUT;
@@ -1534,7 +1597,7 @@ process( RST, CLKBUS(CKMASTER), XMIT_LOAD_1, XMIT_LOAD_2 ) begin
                         XMIT_LIMIT                      <=  528;     --  1056;
                         XMIT_COUNT                      <= -480;     --  -960;
                     end if;
-                elsif CONFIG(MZ700) = '1' then
+                elsif (CONFIG(MZ700) = '1' or CONFIG(MZ800) = '1') then
                 -- Pulse periods for MZ700 type machines
                     if (XMIT_LOAD_1 = '1' and XMIT_BIT_1 = '1') or (XMIT_LOAD_2 = '1' and XMIT_BIT_2 = '1') then
                         XMIT_LIMIT                      <= 1729;     --  3458;
@@ -1587,13 +1650,13 @@ DEBUGCMT: if DEBUG_ENABLE = 1 generate
     DEBUG_STATUS_LEDS(10)                           <= PLAYING(2);
     DEBUG_STATUS_LEDS(11)                           <= PLAYING(1);
     DEBUG_STATUS_LEDS(12)                           <= PLAYING(0);
-    DEBUG_STATUS_LEDS(13)                           <= '0';
-    DEBUG_STATUS_LEDS(14)                           <= '0';
+    DEBUG_STATUS_LEDS(13)                           <= MOTOR_TOGGLE(1);
+    DEBUG_STATUS_LEDS(14)                           <= MOTOR_TOGGLE(0);
     DEBUG_STATUS_LEDS(15)                           <= RECORDING;
     
     DEBUG_STATUS_LEDS(16)                           <= READBIT;
     DEBUG_STATUS_LEDS(17)                           <= RCV_ERROR;
-    DEBUG_STATUS_LEDS(18)                           <= '0';
+    DEBUG_STATUS_LEDS(18)                           <= CONFIG(MZ_80C);
     DEBUG_STATUS_LEDS(19)                           <= RCV_CLR;
     DEBUG_STATUS_LEDS(20)                           <= RCV_DONE;
     DEBUG_STATUS_LEDS(21)                           <= RCV_LOAD;
@@ -1609,7 +1672,10 @@ DEBUGCMT: if DEBUG_ENABLE = 1 generate
     DEBUG_STATUS_LEDS(31 downto 30)                 <= CONFIG(BUTTONS);
 end generate;
 DEBUGCMT1: if DEBUG_ENABLE = 0 generate
-    DEBUG_STATUS_LEDS                               <= (others => '0');
+    -- A few state bits for the simulation (sharpmz.vhd CMT_DEBUG); unused in the FPGA build.
+    DEBUG_STATUS_LEDS                               <= (8 => PLAY_READY, 10 => PLAYING(2), 13 => MOTOR_TOGGLE(1), 14 => MOTOR_TOGGLE(0),
+                                                        18 => CONFIG(MZ_80C), 24 => CMT_BUS_IN(pkgs.mctrl_pkg.STOP),
+                                                        25 => CMT_BUS_IN(pkgs.mctrl_pkg.PLAY), others => '0');
 end generate;
 
 end RTL;

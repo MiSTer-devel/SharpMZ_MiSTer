@@ -102,6 +102,7 @@ entity mz80b is
           CS_IO_GFB_n        : out std_logic;                            -- Graphics Framebuffer IO Select range
           CS_IO_G_n          : out std_logic;                            -- Graphics Options IO Select range
           CS_SWP_MEMBANK_n   : out std_logic;                            -- Move lower 32K into upper block.
+          CPU_RESET          : out std_logic;                            -- Reset the CPU only: PC1 (NST) 0->1, the IPL's jump into RAM.
 
           -- Audio.
           AUDIO_L            : out std_logic;
@@ -152,6 +153,8 @@ signal SEL_VRAM_ENABLE       :     std_logic;                            -- Enab
 signal SEL_VRAM_HIGHADDR     :     std_logic;                            -- Select VRAM as High (D000-FFFF) address, Low (5000-7FFF)
 signal BST_n                 :     std_logic; 
 signal NST                   :     std_logic; 
+signal NST_LAST              :     std_logic := '0';
+signal CPU_RESET_CNT         :     std_logic_vector(3 downto 0) := (others => '0');
 signal MZ_GRAM_ENABLE        :     std_logic;
 signal CS_VRAM_ni            :     std_logic;
 signal CS_IO_8255_n          :     std_logic;
@@ -595,6 +598,27 @@ begin
     CS_IO_GFB_n         <= CS_IO_GFB_ni;
     CS_IO_G_n           <= CS_IO_G_ni;
     CS_SWP_MEMBANK_n    <= BOOTSTRAP_n;
+    CPU_RESET           <= '1' when CPU_RESET_CNT /= 0 else '0';
+
+    -- PC1 (NST) going high resets the CPU, as on the real machine (MAME mz80b: "Work RAM reset"): the IPL's last
+    -- OUT (E3),03 drops the IPL ROM and restarts the CPU at 0000 in RAM. Without the reset the CPU ran on from the
+    -- instruction after the OUT, into the middle of the loaded program (Zero Fighter starts with JP 0100h at 0000).
+    process( COLD_RESET, CLKBUS(CKMASTER) )
+    begin
+        if COLD_RESET = '1' then
+            NST_LAST      <= '0';
+            CPU_RESET_CNT <= (others => '0');
+        elsif rising_edge(CLKBUS(CKMASTER)) then
+            if CLKBUS(CKENCPU) = '1' then
+                NST_LAST <= NST;
+                if NST = '1' and NST_LAST = '0' then
+                    CPU_RESET_CNT <= (others => '1');
+                elsif CPU_RESET_CNT /= 0 then
+                    CPU_RESET_CNT <= CPU_RESET_CNT - 1;
+                end if;
+            end if;
+        end if;
+    end process;
     VGATE_n             <= VGATE_ni;
 
     -- On initial reset, BOOTSTRAP_n is set active, a reset setup and hold takes place, then the processor is set running with the

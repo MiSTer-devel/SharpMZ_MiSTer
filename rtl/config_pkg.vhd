@@ -27,7 +27,7 @@
 
 package config_pkg is
 
-    constant DEBUG_ENABLE           : integer := 1;                      -- Enable debug logic,
+    constant DEBUG_ENABLE           : integer := 0;                      -- Enable debug logic,
     constant NEO_ENABLE             : integer := 0;                      -- Enable local NEO430 IO processor,
     constant STORM_ENABLE           : integer := 0;                      -- Enable local STORM IO processor,
 

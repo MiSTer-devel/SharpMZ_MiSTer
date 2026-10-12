@@ -38,3 +38,28 @@ c5_pin_model_dump.txt
 *_netlist
 *.cdf
 **/.DS_Store
+# Local reference emulators (not part of the core)
+/refs/
+
+# Local software/tape archive (large, third-party)
+/software/
+
+# Verilator sim build products
+verilator/gen/
+verilator/gen_fast/
+verilator/ghdl_work/
+verilator/ghdl_work_fast/
+verilator/ghdl_work_tb/
+verilator/obj_dir*/
+verilator/software/
+verilator/out/
+out/
+
+# mz1500emu run leftovers
+SD-mz1500/
+cdl-export/
+rd-mz1500.dat
+verilator/SD-mz1500/
+verilator/cdl-export/
+verilator/rd-mz1500.dat
+tools/__pycache__/

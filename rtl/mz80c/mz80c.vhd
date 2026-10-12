@@ -63,9 +63,11 @@ library ieee;
 library pkgs;
 use ieee.std_logic_1164.all;
 use ieee.std_logic_unsigned.all;
+use ieee.numeric_std.all;
 use pkgs.config_pkg.all;
 use pkgs.clkgen_pkg.all;
 use pkgs.mctrl_pkg.all;
+use work.vc_rams_pkg.all;
 
 entity mz80c is
     PORT (
@@ -93,6 +95,7 @@ entity mz80c is
           T80_A16            : in  std_logic_vector(15 downto 0);
           T80_DI             : out std_logic_vector(7 downto 0);
           T80_DO             : in  std_logic_vector(7 downto 0);
+          CPU_DIN            : in  std_logic_vector(7 downto 0) := (others => '1'); -- What the CPU reads (opcodes: the PIO decodes RETI).
 
           -- Chip selects to common resources.
           CS_ROM_n           : out std_logic;                            -- ROM Select
@@ -105,6 +108,26 @@ entity mz80c is
           -- Audio.
           AUDIO_L            : out std_logic;
           AUDIO_R            : out std_logic;
+          AUDIO_PSG          : out std_logic_vector(13 downto 0);        -- MZ-800 PSG (SN76489) mix, unsigned. MZ-1500: PSG0, left.
+          AUDIO_PSG_R        : out std_logic_vector(13 downto 0);        -- MZ-1500 PSG1 (right); the MZ-800 PSG otherwise.
+
+          -- MZ-1500 PCG and display registers.
+          M15_PCG_CS         : out std_logic;                            -- CPU access to a PCG plane (OUT E5 1-3: D000-EFFF).
+          M15_PCG_PLANE      : out std_logic_vector(1 downto 0);         -- Plane 0-2.
+          M15_CG_CS          : out std_logic;                            -- CPU read of the CG ROM (OUT E5 0: D000-EFFF).
+          M15_PCG_DI         : in  std_logic_vector(7 downto 0);         -- PCG read data.
+          M15_DMD            : out std_logic_vector(1 downto 0);         -- Port F0: 0 PCG on, 1 priority (0 = BPF, 1 = BFP).
+          M15_PAL            : out std_logic_vector(23 downto 0);        -- Port F1: colour of PCG index i in bits 3i+2..3i.
+
+          -- Joysticks, MiSTer order: 5 fire 2, 4 fire 1, 3 up, 2 down, 1 left, 0 right (1 = active).
+          JOY0               : in  std_logic_vector(5 downto 0);
+          JOY1               : in  std_logic_vector(5 downto 0);
+          JOY_1X03           : in  std_logic;                            -- MZ-700/1500: MZ-1X03 joysticks connected.
+          RAMDISK_EN         : in  std_logic;                            -- MZ-800: 64 KB RAM disk board at E9-EB, F8-FA.
+          PRN_EN             : in  std_logic;                            -- Printer connected (OSD Printer: UART).
+          PRN_RDA            : in  std_logic;                            -- Printer busy / acknowledge (high).
+          PRN_DATA           : out std_logic_vector(7 downto 0);         -- Printer data (MZ-700 FF, MZ-800/1500 PIO port B).
+          PRN_STB            : out std_logic;                            -- Printer strobe RDP (MZ-700 FE bit 7, MZ-800/1500 PA7).
 
           -- Different operations modes.
           CONFIG             : in  std_logic_vector(CONFIG_WIDTH);
@@ -122,6 +145,8 @@ entity mz80c is
           VGATE_n            : out std_logic;                            -- Video Gate enable.
           HBLANK             : in  std_logic;                            -- Horizontal Blanking Signal
           VBLANK             : in  std_logic;                            -- Vertical Blanking Signal
+          HSYNC_n            : in  std_logic;                            -- Horizontal Sync (MZ-800 status).
+          VSYNC_n            : in  std_logic;                            -- Vertical Sync (MZ-800 status).
 
           -- HPS Interface
           IOCTL_DOWNLOAD     : in  std_logic;                            -- HPS Downloading to FPGA.
@@ -177,6 +202,17 @@ signal CS_E2_n               :     std_logic;
 signal CS_ESWP_n             :     std_logic;
 signal CS_GRAM_ni            :     std_logic;
 signal DO367                 :     std_logic_vector(7 downto 0);
+signal JOY_CNT               :     unsigned(13 downto 0);                -- CPU T-states since the start of vertical blank.
+signal JOY_VB_LAST           :     std_logic;
+signal JOY_E008              :     std_logic_vector(4 downto 1);         -- MZ-1X03 bits of E008.
+signal M8_JOY_DO             :     std_logic_vector(7 downto 0);         -- MZ-800 joystick ports F0/F1.
+signal RD_SEL                :     std_logic;                            -- RAM disk data port (EA, F9 read; EA, FA write).
+signal RD_SEL_LAST           :     std_logic;
+signal RD_OFF                :     unsigned(15 downto 0);
+signal RD_WE                 :     std_logic;
+signal RD_DO                 :     std_logic_vector(7 downto 0);
+signal RD_Q                  :     std_logic_vector(7 downto 0);
+signal RD_DI                 :     std_logic_vector(7 downto 0);
 signal CS_BANKSWITCH_n       :     std_logic;
 signal CS_MZ700BS_n          :     std_logic;
 signal CS_IO_E0_n            :     std_logic;
@@ -205,6 +241,9 @@ signal INTMSK                :     std_logic;                               -- E
 signal DOPIT                 :     std_logic_vector(7 downto 0);
 signal SOUND_ENABLE          :     std_logic;
 signal SOUND_PULSE_X2        :     std_logic;
+signal SOUND_PULSE_X2_LAST   :     std_logic := '0';
+signal CS_ESWP_LAST_n        :     std_logic;
+signal CURSOR_TICK          :     std_logic := '0';
 signal SOUND                 :     std_logic;
 signal INTX                  :     std_logic;
 --
@@ -222,6 +261,50 @@ signal MTR                   :     std_logic;
 signal M_ON                  :     std_logic;
 signal SENSE0                :     std_logic;
 signal SWIN                  :     std_logic_vector(3 downto 0);
+--
+-- MZ-800
+--
+signal M8                    :     std_logic;                               -- Machine is an MZ-800.
+signal M8_700                :     std_logic;                               -- MZ-800 in MZ-700 mode (DMD bit 3).
+signal M8_DMD                :     std_logic_vector(3 downto 0);            -- Copy of the GDG display mode register (OUT CE).
+signal M8_ROM0               :     std_logic;                               -- Memory map: ROM at 0000-0FFF.
+signal M8_ROM1               :     std_logic;                               -- Memory map: CG ROM at 1000-1FFF.
+signal M8_CGV                :     std_logic;                               -- Memory map: CG-RAM at C000 (700 mode) / VRAM at 8000 (800 mode).
+signal M8_ROME               :     std_logic;                               -- Memory map: ROM at E000-FFFF (and VRAM at D000 in 700 mode).
+signal M8_PROH               :     std_logic;                               -- Memory map: "prohibited", E000-FFFF reads 1A.
+signal M8_E00X               :     std_logic;                               -- Address is E000-E00F.
+signal M8_LOROM              :     std_logic;                               -- 0000-1FFF is mapped to ROM.
+signal M8_HIGH               :     std_logic;                               -- E000-FFFF is not RAM.
+signal M8_CS_E_n             :     std_logic;                               -- 700 mode memory mapped ports E000-E00F.
+signal M8_CS_ROM_n           :     std_logic;
+signal M8_CS_RAM_n           :     std_logic;
+signal M8_CS_VRAM_n          :     std_logic;
+signal M8_CS_GRAM_n          :     std_logic;
+signal M8_IO                 :     std_logic_vector(7 downto 0);            -- I/O port address when IORQ is active, else 00.
+signal M8_STATUS             :     std_logic_vector(7 downto 0);            -- IN CE status.
+signal M8_TEMPO              :     std_logic;
+signal M8_TEMPO_CNT          :     integer range 0 to 228;
+signal M8_HBLANK_LAST        :     std_logic;
+signal M8_PSG_CS_n           :     std_logic;
+signal M15                   :     std_logic;                            -- MZ-1500 (CONFIG(MZ700) is also set).
+signal M15_SPEC              :     std_logic_vector(2 downto 0);         -- OUT E5: 1 = CG ROM, 2-4 = PCG plane 1-3 at D000-EFFF.
+signal M15_SPEC_ON           :     std_logic;
+signal M15_WIN               :     std_logic;                            -- CPU access inside the special window.
+signal M15_DMD_R             :     std_logic_vector(1 downto 0);
+signal M15_PAL_R             :     std_logic_vector(23 downto 0);
+signal M15_PSG1_CS_n         :     std_logic;
+signal M15_PSG1_MIX          :     unsigned(13 downto 0);
+signal M8_PIO_CS             :     std_logic;
+signal M8_PIO_DO             :     std_logic_vector(7 downto 0);
+signal M8_PIO_VOE            :     std_logic;
+signal M8_PIO_INT_n          :     std_logic;
+signal M8_PIO_PA             :     std_logic_vector(7 downto 0);
+signal M8_PIO_PAO            :     std_logic_vector(7 downto 0);
+signal M8_PIO_PBO            :     std_logic_vector(7 downto 0);
+signal M7_PRN_DATA           :     std_logic_vector(7 downto 0);            -- MZ-700 printer port FF.
+signal M7_PRN_CTRL           :     std_logic_vector(7 downto 0);            -- MZ-700 printer port FE: 7 RDP, 6 IRT.
+signal M7_PRN                :     std_logic;                               -- MZ-700 model (not the MZ-800/1500).
+signal M8_PSG_MIX            :     unsigned(13 downto 0);
 --
 -- Debug
 --
@@ -326,7 +409,7 @@ begin
             WR_n             => T80_WR_n,
             RD_n             => T80_RD_n,
             CLK0             => CLKBUS(CKSOUND),
-            GATE0            => SOUND_ENABLE,
+            GATE0            => SOUND_ENABLE,                            -- E008 bit 0 on every model; the MZ-800 only decodes E008 in 700 mode (as mz800emu).
             OUT0             => SOUND_PULSE_X2,
             CLK1             => CLKBUS(CKRTC),
             GATE1            => '1',
@@ -335,6 +418,104 @@ begin
             GATE2            => '1',
             OUT2             => INTX
       );
+
+    -- MZ-800 PSG (SN76489) at port F2, write only. Its clock is fixed at 3.54688 MHz so turbo does not change the pitch.
+    --
+    PSG0 : entity work.sn76489_audio
+        generic map (
+            FAST_IO_G        => '1',                                     -- No wait states, as mz800emu.
+            MIN_PERIOD_CNT_G => 6
+        )
+        port map (
+            clk_i            => CLKBUS(CKMASTER),
+            en_clk_psg_i     => CLKBUS(CKENPSG),
+            ce_n_i           => M8_PSG_CS_n,
+            wr_n_i           => T80_WR_n,
+            ready_o          => open,
+            data_i           => T80_DO,
+            ch_a_o           => open,
+            ch_b_o           => open,
+            ch_c_o           => open,
+            noise_o          => open,
+            mix_audio_o      => M8_PSG_MIX,
+            pcm14s_o         => open
+        );
+    M8_PSG_CS_n              <= '0' when M8 = '1' and M8_IO = X"F2" else
+                                '0' when M15 = '1' and (M8_IO = X"F2" or M8_IO = X"E9") else '1';       -- MZ-1500: F2 left, E9 both
+
+    -- MZ-1500 second PSG (right channel) at F3; E9 writes both.
+    --
+    PSG1 : entity work.sn76489_audio
+        generic map (
+            FAST_IO_G        => '1',
+            MIN_PERIOD_CNT_G => 6
+        )
+        port map (
+            clk_i            => CLKBUS(CKMASTER),
+            en_clk_psg_i     => CLKBUS(CKENPSG),
+            ce_n_i           => M15_PSG1_CS_n,
+            wr_n_i           => T80_WR_n,
+            ready_o          => open,
+            data_i           => T80_DO,
+            ch_a_o           => open,
+            ch_b_o           => open,
+            ch_c_o           => open,
+            noise_o          => open,
+            mix_audio_o      => M15_PSG1_MIX,
+            pcm14s_o         => open
+        );
+    M15_PSG1_CS_n            <= '0' when M15 = '1' and (M8_IO = X"F3" or M8_IO = X"E9") else '1';
+
+    -- MZ-800 Z80 PIO at FC-FF. Port A: 0 printer /RDA, 1 printer STA, 4 /CTC0, 5 /VBLN; CP/M runs its
+    -- keyboard and clock from the /VBLN bit mode interrupt (IM 2).
+    --
+    PIO800 : entity work.mz800_pio
+        port map (
+            CLK              => CLKBUS(CKMASTER),
+            RESET            => MZ_RESET or not (M8 or M15),
+            CS               => M8_PIO_CS,
+            A                => T80_A16(1 downto 0),
+            RD_n             => T80_RD_n,
+            WR_n             => T80_WR_n,
+            IORQ_n           => T80_IORQ_n,
+            M1_n             => T80_M1_n,
+            RD_n_CPU         => T80_RD_n,
+            CPU_DIN          => CPU_DIN,
+            DI               => T80_DO,
+            DO               => M8_PIO_DO,
+            VECTOR_OE        => M8_PIO_VOE,
+            INT_n            => M8_PIO_INT_n,
+            PA_IN            => M8_PIO_PA,
+            PB_IN            => x"FF",
+            PA_OUT           => M8_PIO_PAO,
+            PB_OUT           => M8_PIO_PBO
+        );
+    M8_PIO_CS                <= '1' when (M8 = '1' or M15 = '1') and M8_IO(7 downto 2) = "111111" else '0';   -- MZ-800 and MZ-1500
+    -- PA0 RDA: always ready with no printer (as before), the printer's acknowledge with one. PA1 STA high: paper.
+    M8_PIO_PA                <= "11" & (not VBLANK) & (not SOUND_PULSE_X2) & "001" & (PRN_RDA and PRN_EN);
+
+    -- Printer port. MZ-800/1500: Z80 PIO port B data, PA7 RDP. MZ-700: the plotter/printer port at I/O FF (data)
+    -- and FE (write: 7 RDP, 6 IRT; read: 0 RDA, 1 STA, 2-3 low), as MZ-700 BASIC 1Z-013B drives it (2871): wait
+    -- for FE AND 0D = 0, OUT FF, OUT FE 80, wait for bit 0 high, OUT FE 0. Without a printer FE reads FF, as before.
+    M7_PRN                   <= '1' when CONFIG(MZ700) = '1' and M8 = '0' and M15 = '0' else '0';
+    process( MZ_RESET, CLKBUS(CKMASTER) )
+    begin
+        if MZ_RESET = '1' then
+            M7_PRN_CTRL      <= (others => '0');
+        elsif rising_edge(CLKBUS(CKMASTER)) then
+            if M7_PRN = '1' and T80_WR_n = '0' and M8_IO = X"FF" then
+                M7_PRN_DATA  <= T80_DO;
+            end if;
+            if M7_PRN = '1' and T80_WR_n = '0' and M8_IO = X"FE" then
+                M7_PRN_CTRL  <= T80_DO;
+            end if;
+        end if;
+    end process;
+    PRN_DATA                 <= M8_PIO_PBO    when M8 = '1' or M15 = '1' else M7_PRN_DATA;
+    PRN_STB                  <= M8_PIO_PAO(7) when M8 = '1' or M15 = '1' else M7_PRN_CTRL(7) and M7_PRN;
+    AUDIO_PSG                <= std_logic_vector(M8_PSG_MIX)   when (M8 = '1' or M15 = '1') and CONFIG(AUDIOSRC) = '0' else (others => '0');
+    AUDIO_PSG_R              <= std_logic_vector(M15_PSG1_MIX) when M15 = '1' and CONFIG(AUDIOSRC) = '0' else
+                                std_logic_vector(M8_PSG_MIX)   when M8 = '1'  and CONFIG(AUDIOSRC) = '0' else (others => '0');
 
     -- Parent signals onto local wires.
     --
@@ -346,7 +527,8 @@ begin
     --
     -- MZ-80A - Mask interrupt from 8254 if INTMSK low.
     -- MZ-80K - Interrupt is from 8254 direct.
-    T80_INT_ni               <= '0' when ((CONFIG(MZ_A)='1' or CONFIG(MZ700) = '1') and INTX='1' and INTMSK='1') or ((CONFIG(MZ_KC)='1' and INTX='1'))
+    T80_INT_ni               <= '0' when ((CONFIG(MZ_A)='1' or CONFIG(MZ700) = '1' or M8 = '1') and INTX='1' and INTMSK='1') or ((CONFIG(MZ_KC)='1' and INTX='1'))
+                                     or ((M8 = '1' or M15 = '1') and M8_PIO_INT_n = '0')
                                 else '1';
     T80_INT_n                <= T80_INT_ni;
 
@@ -388,7 +570,26 @@ begin
     --
     -- Data Bus Multiplexing, plex all the output devices onto the Z80 Data Input according to the CS.
     --
-    T80_DI                   <= DOPPI     when CS_E0_n  ='0' and T80_RD_n = '0'                                -- Read from 8255
+    T80_DI                   <= M8_PIO_DO when (M8 = '1' or M15 = '1') and (M8_PIO_VOE = '1' or (M8_PIO_CS = '1' and T80_RD_n = '0'))   -- MZ-800/1500 Z80 PIO, and its vector
+                                else
+                                M15_PCG_DI when M15_WIN = '1' and T80_RD_n = '0'                                     -- MZ-1500 PCG plane or CG ROM
+                                else
+                                M8_JOY_DO when M8 = '1' and T80_RD_n = '0' and M8_IO(7 downto 1) = "1111000"             -- MZ-800 joysticks F0/F1
+                                else
+                                "1111001" & PRN_RDA when M7_PRN = '1' and PRN_EN = '1' and T80_RD_n = '0' and M8_IO = X"FE"  -- MZ-700 printer status
+                                else
+                                RD_DO     when RD_SEL = '1' and T80_RD_n = '0'                                          -- MZ-800 RAM disk
+                                else
+                                X"1A"     when M8 = '1' and T80_MREQ_n = '0' and T80_RD_n = '0' and T80_A16(15 downto 13) = "111" and M8_PROH = '1'
+                                else
+                                X"1A"     when M8 = '1' and M8_CS_E_n = '0' and T80_RD_n = '0' and T80_A16(3 downto 0) > "1000"
+                                else
+                                (not HBLANK) & "00000" & '0' & M8_TEMPO
+                                          when M8 = '1' and M8_CS_E_n = '0' and T80_RD_n = '0' and T80_A16(3 downto 0) = "1000"
+                                else
+                                M8_STATUS when M8 = '1' and M8_IO = X"CE" and T80_RD_n = '0'
+                                else
+                                DOPPI     when CS_E0_n  ='0' and T80_RD_n = '0'                                -- Read from 8255
                                 else 
                                 DOPIT     when CS_E1_n  ='0' and T80_RD_n = '0'                                -- Read from 8254
                                 else 
@@ -425,7 +626,7 @@ begin
     --                          else '1';
 
     -- D000 - DFFF
-    CS_VRAM_ni          <= '0'  when ( (T80_A16(15 downto 12)="1101" and T80_MREQ_n = '0' and MZ_GRAM_ENABLE = '0')
+    CS_VRAM_ni          <= '0'  when ( (T80_A16(15 downto 12)="1101" and T80_MREQ_n = '0' and MZ_GRAM_ENABLE = '0' and M15_SPEC_ON = '0')
                                        and
                                        ( (CONFIG(MZ_KC)='1' or CONFIG(MZ_A)='1')
                                          or
@@ -434,7 +635,7 @@ begin
                                      ) 
                                 else '1';
     -- E000 - EFFF
-    CS_E_ni             <= '0'  when ( (T80_A16(15 downto 12)="1110" and T80_MREQ_n = '0' and MZ_GRAM_ENABLE = '0')
+    CS_E_ni             <= '0'  when ( (T80_A16(15 downto 12)="1110" and T80_MREQ_n = '0' and MZ_GRAM_ENABLE = '0' and M15_SPEC_ON = '0')
                                        and
                                        ( (CONFIG(MZ_KC)='1' or CONFIG(MZ_A)='1')
                                          or
@@ -443,11 +644,21 @@ begin
                                      )
                                 else '1';
     -- Sub division E000 - E200
-    CS_E0_n             <= '0'  when CS_E_ni = '0' and T80_A16(11 downto 2) = "0000000000"                                                -- 8255
+    CS_E0_n             <= '0'  when M8 = '1' and M8_CS_E_n = '0' and T80_A16(3 downto 2) = "00"                                          -- MZ-800 700 mode 8255
+                                else
+                                '0'  when M8 = '1' and M8_700 = '0' and M8_IO(7 downto 2) = "110100"                                         -- MZ-800 800 mode 8255 (D0-D3)
+                                else
+                                '0'  when M8 = '0' and CS_E_ni = '0' and T80_A16(11 downto 2) = "0000000000"                                 -- 8255
                                 else '1';
-    CS_E1_n             <= '0'  when CS_E_ni = '0' and T80_A16(11 downto 2) = "0000000001"                                                -- 8254
+    CS_E1_n             <= '0'  when M8 = '1' and M8_CS_E_n = '0' and T80_A16(3 downto 2) = "01"                                          -- MZ-800 700 mode 8254
+                                else
+                                '0'  when M8 = '1' and M8_700 = '0' and M8_IO(7 downto 2) = "110101"                                         -- MZ-800 800 mode 8254 (D4-D7)
+                                else
+                                '0'  when M8 = '0' and CS_E_ni = '0' and T80_A16(11 downto 2) = "0000000001"                                 -- 8254
                                 else '1';
-    CS_E2_n             <= '0'  when CS_E_ni = '0' and T80_A16(11 downto 2) = "0000000010"                                                -- LS367
+    CS_E2_n             <= '0'  when M8 = '1' and M8_CS_E_n = '0' and T80_A16(3 downto 0) = "1000"                                        -- MZ-800 700 mode E008
+                                else
+                                '0'  when M8 = '0' and CS_E_ni = '0' and T80_A16(11 downto 2) = "0000000010"                                 -- LS367
                                 else '1';
     CS_ESWP_n           <= '0'  when CONFIG(MZ_A) = '1' and CS_E_ni = '0' and T80_RD_n = '0' and T80_A16(11 downto 5) = "0000000"         -- ROM/RAM Swap
                                 else '1';
@@ -483,6 +694,8 @@ begin
                                        )
                                        or
                                        ( T80_A16(15 downto 11) = "11101"                                                                  -- E800 -> EFFF User ROM memory.
+                                         and
+                                         M15_SPEC_ON = '0'                                                                                -- MZ-1500: not under the CG/PCG window.
                                          and
                                          (CONFIG(USERROM) and CONFIG(CURRENTMACHINE)) /= "00000000"                                       -- Active machine has the user rom enabled.
                                          and
@@ -583,23 +796,152 @@ begin
 
     -- Send signals to module interface.
     --
-    CS_ROM_n            <= CS_ROM_ni;
-    CS_RAM_n            <= CS_RAM_ni;
-    CS_VRAM_n           <= CS_VRAM_ni;
-    CS_MEM_G_n          <= CS_E_ni;
-    CS_GRAM_n           <= CS_GRAM_ni;
+    CS_ROM_n            <= M8_CS_ROM_n  when M8 = '1' else CS_ROM_ni;
+    CS_RAM_n            <= M8_CS_RAM_n  when M8 = '1' else CS_RAM_ni;
+    CS_VRAM_n           <= M8_CS_VRAM_n when M8 = '1' else CS_VRAM_ni;
+    CS_MEM_G_n          <= M8_CS_E_n    when M8 = '1' else CS_E_ni;
+    CS_GRAM_n           <= M8_CS_GRAM_n when M8 = '1' else CS_GRAM_ni;
+
+    --
+    -- MZ-800 memory map (mz800emu / MZ-800 Technical Reference Manual).
+    --
+    -- 0000-0FFF ROM (M8_ROM0) or RAM.       1000-1FFF CG ROM (M8_ROM1) or RAM.
+    -- 8000-9FFF VRAM in 800 mode (M8_CGV), A000-BFFF too when 640 wide (DMD bit 2), else RAM.
+    -- C000-CFFF CG-RAM in 700 mode (M8_CGV) else RAM.  D000-DFFF VRAM in 700 mode (M8_ROME) else RAM.
+    -- E000-FFFF ROM (M8_ROME) or RAM. With ROM mapped, E000-E00F is the memory mapped ports in 700 mode
+    --           (E000-E008, E009-E00F read 1A) and reads FF in 800 mode. M8_PROH makes all of E000-FFFF read 1A.
+    --
+    M8                  <= CONFIG(MZ800);
+    M15                 <= CONFIG(IS_MZ1500);
+
+    -- MZ-1500 special window (mz800emu mz1500_memory.c): OUT E5 n maps the CG ROM (n=0) or PCG plane n (1-3) over
+    -- D000-EFFF while the upper ROM area is mapped, hiding VRAM, the E000 ports and the E800 ROM; E3, E4 and E6 unmap it.
+    -- F0 is the display mode (0: PCG on, 1: priority), F1 the PCG palette (bits 6-4 index, 2-0 colour).
+    M15_SPEC_ON         <= '1' when M15 = '1' and M15_SPEC /= "000" and MZ_HIGH_RAM_ENABLE = '0' else '0';
+    M15_WIN             <= '1' when M15_SPEC_ON = '1' and T80_MREQ_n = '0' and (T80_A16(15 downto 12) = "1101" or T80_A16(15 downto 12) = "1110") else '0';
+    M15_PCG_CS          <= '1' when M15_WIN = '1' and M15_SPEC(2 downto 1) /= "00" else '0';
+    M15_CG_CS           <= '1' when M15_WIN = '1' and M15_SPEC = "001" else '0';
+    M15_PCG_PLANE       <= std_logic_vector(unsigned(M15_SPEC(1 downto 0)) - 2) when M15_SPEC(2) = '0' else "10";
+    M15_DMD             <= M15_DMD_R;
+    M15_PAL             <= M15_PAL_R;
+
+    process( MZ_RESET, CLKBUS(CKMASTER) ) begin
+        if MZ_RESET = '1' then
+            M15_SPEC   <= "000";
+            M15_DMD_R  <= "00";
+            M15_PAL_R  <= (others => '0');
+        elsif rising_edge(CLKBUS(CKMASTER)) then
+            if CLKBUS(CKENCPU) = '1' and M15 = '1' then
+                if CS_IO_E5_n = '0' then
+                    M15_SPEC <= std_logic_vector(unsigned('0' & T80_DO(1 downto 0)) + 1);
+                elsif CS_IO_E6_n = '0' or CS_IO_E3_n = '0' or CS_IO_E4_n = '0' then
+                    M15_SPEC <= "000";
+                end if;
+                if T80_IORQ_n = '0' and T80_WR_n = '0' and T80_M1_n = '1' then
+                    if T80_A16(7 downto 0) = X"F0" then
+                        M15_DMD_R <= T80_DO(1 downto 0);
+                    elsif T80_A16(7 downto 0) = X"F1" then
+                        for i in 0 to 7 loop
+                            if unsigned(T80_DO(6 downto 4)) = i then
+                                M15_PAL_R(i*3+2 downto i*3) <= T80_DO(2 downto 0);
+                            end if;
+                        end loop;
+                    end if;
+                end if;
+            end if;
+        end if;
+    end process;
+    M8_700              <= M8_DMD(3);
+    M8_E00X             <= '1'  when T80_A16(15 downto 4) = X"E00" else '0';
+    M8_IO               <= T80_A16(7 downto 0) when T80_IORQ_n = '0' and T80_M1_n = '1' else X"00";
+    M8_LOROM            <= '1'  when (T80_A16(15 downto 12) = "0000" and M8_ROM0 = '1') or (T80_A16(15 downto 12) = "0001" and M8_ROM1 = '1')
+                                else '0';
+    M8_HIGH             <= '1'  when T80_A16(15 downto 13) = "111" and (M8_ROME = '1' or (M8_PROH = '1' and T80_RD_n = '0'))
+                                else '0';
+    M8_CS_ROM_n         <= '0'  when T80_MREQ_n = '0' and (M8_LOROM = '1' or (M8_HIGH = '1' and M8_ROME = '1' and M8_E00X = '0' and (M8_PROH = '0' or T80_RD_n = '1')))
+                                else '1';
+    M8_CS_E_n           <= '0'  when T80_MREQ_n = '0' and M8_E00X = '1' and M8_ROME = '1' and M8_700 = '1' and (M8_PROH = '0' or T80_RD_n = '1')
+                                else '1';
+    M8_CS_VRAM_n        <= '0'  when T80_MREQ_n = '0' and M8_700 = '1' and ((T80_A16(15 downto 12) = "1101" and M8_ROME = '1') or (T80_A16(15 downto 12) = "1100" and M8_CGV = '1'))
+                                else '1';
+    M8_CS_GRAM_n        <= '0'  when T80_MREQ_n = '0' and M8_700 = '0' and M8_CGV = '1' and (T80_A16(15 downto 13) = "100" or (T80_A16(15 downto 13) = "101" and M8_DMD(2) = '1'))
+                                else '1';
+    M8_CS_RAM_n         <= '0'  when T80_MREQ_n = '0' and M8_LOROM = '0' and M8_HIGH = '0' and M8_CS_VRAM_n = '1' and M8_CS_GRAM_n = '1'
+                                else '1';
+
+    -- IN CE status: 7 /HBLNK, 6 /VBLNK, 5 /HSYNC, 4 /VSYNC, 2 CKSW, 1 mode switch, 0 TEMPO.
+    M8_STATUS           <= (not HBLANK) & (not VBLANK) & HSYNC_n & VSYNC_n & '0' & '0' & CONFIG(MZ800_MODE) & M8_TEMPO;
+
+    -- MZ-800 memory map register and DMD copy. OUT E0-E6 and IN E0/E1 change the map.
+    --
+    process( MZ_RESET, CLKBUS(CKMASTER) ) begin
+        if MZ_RESET = '1' then
+            M8_ROM0                   <= '1';
+            M8_ROM1                   <= '1';
+            M8_CGV                    <= '0';
+            M8_ROME                   <= '1';
+            M8_PROH                   <= '0';
+            M8_DMD                    <= "1000";
+
+        elsif rising_edge(CLKBUS(CKMASTER)) then
+            if CLKBUS(CKENCPU) = '1' and M8 = '1' then
+                if T80_WR_n = '0' then
+                    case M8_IO is
+                        when X"E0" => M8_ROM0 <= '0'; M8_ROM1 <= '0';
+                        when X"E1" => M8_ROME <= '0';
+                        when X"E2" => M8_ROM0 <= '1';
+                        when X"E3" => M8_ROME <= '1';
+                        when X"E4" =>
+                            M8_ROM0           <= '1';
+                            M8_ROME           <= '1';
+                            M8_ROM1           <= not M8_700;
+                            M8_CGV            <= not M8_700;
+                        when X"E5" => M8_PROH <= '1';
+                        when X"E6" => M8_PROH <= '0';
+                        when X"CE" => M8_DMD  <= T80_DO(3 downto 0);
+                        when others => null;
+                    end case;
+                elsif T80_RD_n = '0' then
+                    case M8_IO is
+                        when X"E0" => M8_ROM1 <= '1'; M8_CGV <= '1';
+                        when X"E1" => M8_ROM1 <= '0'; M8_CGV <= '0';
+                        when others => null;
+                    end case;
+                end if;
+            end if;
+        end if;
+    end process;
+
+    -- TEMPO: about 34Hz, toggles every 229 lines.
+    process( CLKBUS(CKMASTER) ) begin
+        if rising_edge(CLKBUS(CKMASTER)) then
+            M8_HBLANK_LAST            <= HBLANK;
+            if HBLANK = '1' and M8_HBLANK_LAST = '0' then
+                if M8_TEMPO_CNT = 228 then
+                    M8_TEMPO_CNT      <= 0;
+                    M8_TEMPO          <= not M8_TEMPO;
+                else
+                    M8_TEMPO_CNT      <= M8_TEMPO_CNT + 1;
+                end if;
+            end if;
+        end if;
+    end process;
     CS_IO_GFB_n         <= CS_IO_GFB_ni;
 
     -- MZ80A/1200 Memory Swap - swap rom out and ram in.
     --
-    process( MZ_RESET, CS_ESWP_n ) begin
+    process( MZ_RESET, CLKBUS(CKMASTER) ) begin
         if(MZ_RESET = '1') then
             MZ_MEMORY_SWAP            <= '0';
-        elsif(CS_ESWP_n'event and CS_ESWP_n='0') then
-            if(T80_A16(4 downto 2) = "011") then
-                MZ_MEMORY_SWAP        <= '1';
-            elsif(T80_A16(4 downto 2) = "100") then
-                MZ_MEMORY_SWAP        <= '0';
+            CS_ESWP_LAST_n            <= '1';
+        elsif rising_edge(CLKBUS(CKMASTER)) then
+            CS_ESWP_LAST_n            <= CS_ESWP_n;
+            if CS_ESWP_n = '0' and CS_ESWP_LAST_n = '1' then     -- Falling edge of the swap chip select.
+                if(T80_A16(4 downto 2) = "011") then
+                    MZ_MEMORY_SWAP    <= '1';
+                elsif(T80_A16(4 downto 2) = "100") then
+                    MZ_MEMORY_SWAP    <= '0';
+                end if;
             end if;
         end if;
     end process;
@@ -647,6 +989,9 @@ begin
                 elsif(CS_IO_E4_n = '0') then
                     MZ_HIGH_RAM_ENABLE  <= '0';
                     MZ_INHIBIT_RESET    <= '1';
+
+                elsif(CS_IO_E5_n = '0' and M15 = '1') then                  -- MZ-1500: E5 also maps the upper ROM area.
+                    MZ_HIGH_RAM_ENABLE  <= '0';
     
                 elsif(MZ_HIGH_RAM_INHIBIT = '0' and MZ_INHIBIT_RESET = '1') then
                     MZ_INHIBIT_RESET    <= '0';
@@ -665,7 +1010,7 @@ begin
 
             if CLKBUS(CKENCPU) = '1' then
 
-                if(CS_IO_E5_n = '0') then
+                if(CS_IO_E5_n = '0' and M15 = '0') then                     -- MZ-1500: E5 selects the CG/PCG window instead.
                     MZ_HIGH_RAM_INHIBIT <= '1';
 
                 elsif(CS_IO_E6_n = '0' or MZ_INHIBIT_RESET = '1') then
@@ -706,10 +1051,12 @@ begin
             TCOUNT          := (others=>'0');
 
         elsif CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER)='1' then
+            CURSOR_TICK         <= '0';
             if CLKBUS(CKENPERIPH) = '1' then
                 if( TCOUNT = 18371 ) then
                     TCOUNT      := (others=>'0');
                     CURSOR_CLK  <= not CURSOR_CLK;
+                    CURSOR_TICK <= not CURSOR_CLK;                    -- Pulse where CURSOR_CLK rises.
                 else
                     TCOUNT      := TCOUNT + '1';
                 end if;
@@ -720,15 +1067,17 @@ begin
     --
     -- Cursor blink Clock
     --
-    process( CURSOR_CLK, CURSOR_RESET ) begin
-        if( CURSOR_RESET='0' ) then
-            CCOUNT           <= (others => '0');
-        elsif( CURSOR_CLK'event and CURSOR_CLK = '1' ) then
-            if( CCOUNT = 18 ) then
-                CCOUNT       <=(others=>'0');
-                CURSOR_BLINK <= not CURSOR_BLINK;
-            else
-                CCOUNT       <= CCOUNT+'1';
+    process( CLKBUS(CKMASTER) ) begin
+        if rising_edge(CLKBUS(CKMASTER)) then
+            if( CURSOR_RESET='0' ) then
+                CCOUNT           <= (others => '0');
+            elsif( CURSOR_TICK = '1' ) then
+                if( CCOUNT = 18 ) then
+                    CCOUNT       <=(others=>'0');
+                    CURSOR_BLINK <= not CURSOR_BLINK;
+                else
+                    CCOUNT       <= CCOUNT+'1';
+                end if;
             end if;
         end if;
     end process;
@@ -742,7 +1091,9 @@ begin
 
         elsif CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER) = '1' then
 
-            if CLKBUS(CKENPERIPH) = '1' and T80_WR_n = '0' and CS_E2_n = '0' then
+            -- Any clock of the write: a CPU write is shorter than the gap between CKENPERIPH pulses at some
+            -- phases, and then E008 writes were lost (no beeper) depending on when the program started.
+            if T80_WR_n = '0' and CS_E2_n = '0' then
                 SOUND_ENABLE <= T80_DO(0);
             end if;
         end if;
@@ -750,18 +1101,23 @@ begin
 
     -- Audio output. Choose between generated sound and CMT pulse audio.
     --
-    AUDIO_L    <= SOUND when CONFIG(AUDIOSRC) = '0'            -- Sound Output Left
+    AUDIO_L    <= (SOUND and (VGATE_ni or not M8)) when CONFIG(AUDIOSRC) = '0'            -- Sound Output Left (MZ-800: gated by PC0)
                   else
                   CMT_BUS_OUT(WRITEBIT);
-    AUDIO_R    <= SOUND when CONFIG(AUDIOSRC) = '0'            -- Sound Output Right
+    AUDIO_R    <= (SOUND and (VGATE_ni or not M8)) when CONFIG(AUDIOSRC) = '0'            -- Sound Output Right (MZ-800: gated by PC0)
                   else
                   CMT_BUS_OUT(READBIT);
 
-    -- The signal coming out of the 8254 is not a square wave and twice the frequency. The addition of a flip-flop to divide the
-    -- frequency by 2 results in a square wave of the correct audio frequency.
-    process( SOUND_PULSE_X2 ) begin
-        if( SOUND_PULSE_X2'event and SOUND_PULSE_X2 = '1' ) then
-            SOUND <= not SOUND;
+    -- MZ-80K family: counter 0 runs from 2 MHz and a flip-flop halves its output. The MZ-700/800 clock counter 0 at
+    -- 1.1088 MHz and use its mode 3 square wave directly: the monitor's BELL (count 04ECh) is 880 Hz, as documented.
+    process( CLKBUS(CKMASTER) ) begin
+        if rising_edge(CLKBUS(CKMASTER)) then
+            SOUND_PULSE_X2_LAST <= SOUND_PULSE_X2;
+            if CONFIG(MZ700) = '1' or M8 = '1' then
+                SOUND <= SOUND_PULSE_X2;
+            elsif SOUND_PULSE_X2 = '1' and SOUND_PULSE_X2_LAST = '0' then
+                SOUND <= not SOUND;
+            end if;
         end if;
     end process;
 
@@ -806,11 +1162,86 @@ begin
                          else
                          '1'         when CONFIG(MZ_A)  = '1' and (BLNK_n = '0' and VGATE_ni = '0')
                          else '1';
-    DO367(6 downto 1) <= (others=>'1');
+    DO367(6 downto 5) <= (others=>'1');
+    DO367(4 downto 1) <= JOY_E008 when JOY_1X03 = '1' and CONFIG(MZ700) = '1' and M8 = '0' else (others => '1');
+
+    -- MZ-1X03 joysticks (MZ-700, MZ-1500), as mz800emu's joymz-1x03.c: E008 bits 1-4 are JA1, JA2, JB1, JB2. While the
+    -- picture is displayed they are the fire buttons (low = pressed); from the start of vertical blank each is low for
+    -- 68 + 28 x position T-states (the stick's X or Y, 0-255), which the ROM measures with a counting loop. A MiSTer
+    -- joystick is digital: left/up 0, centre 128, right/down 255.
+    process(CLKBUS(CKMASTER)) begin
+        if rising_edge(CLKBUS(CKMASTER)) then
+            if CLKBUS(CKENCPU) = '1' then
+                JOY_VB_LAST <= VBLANK;
+                if VBLANK = '1' and JOY_VB_LAST = '0' then
+                    JOY_CNT <= (others => '0');
+                elsif JOY_CNT /= to_unsigned(16383, JOY_CNT'length) then
+                    JOY_CNT <= JOY_CNT + 1;
+                end if;
+            end if;
+        end if;
+    end process;
+    process(VBLANK, JOY0, JOY1, JOY_CNT)
+        function pulse(cnt : unsigned; neg : std_logic; pos : std_logic) return std_logic is
+            variable t : natural;
+        begin
+            if neg = '1' and pos = '0' then t := 68; elsif pos = '1' and neg = '0' then t := 68 + 255 * 28; else t := 68 + 128 * 28; end if;
+            if cnt < t then return '0'; else return '1'; end if;
+        end function;
+    begin
+        if VBLANK = '0' then
+            JOY_E008 <= not JOY1(5) & not JOY1(4) & not JOY0(5) & not JOY0(4);
+        else
+            JOY_E008 <= pulse(JOY_CNT, JOY1(3), JOY1(2)) & pulse(JOY_CNT, JOY1(1), JOY1(0)) &
+                        pulse(JOY_CNT, JOY0(3), JOY0(2)) & pulse(JOY_CNT, JOY0(1), JOY0(0));
+        end if;
+    end process;
+
+    -- MZ-800 RAM disk board, the "standard" 64 KB one of mz800emu (hw-generic/ramdisk): OUT EB sets the offset (high
+    -- byte from the address bus, OUT (C),A), EA reads or writes the byte there and moves on, F9 reads and FA writes the
+    -- same way, IN F8 resets the offset. E9 selects a 64 KB bank, which a 64 KB board ignores.
+    -- The data is stored inverted so that the board starts out reading FF, as mz800emu's: the IPL boots a "RAM file"
+    -- whose 9th byte equals the number of 1 bits in the first eight, which an all-zero board passes.
+    RD_DI  <= not T80_DO;
+    RD_DO  <= not RD_Q;
+    RD_SEL <= '1' when M8 = '1' and RAMDISK_EN = '1' and
+                       (M8_IO = X"EA" or (M8_IO = X"F9" and T80_RD_n = '0') or (M8_IO = X"FA" and T80_WR_n = '0')) else '0';
+    process(CLKBUS(CKMASTER)) begin
+        if rising_edge(CLKBUS(CKMASTER)) then
+            RD_SEL_LAST <= RD_SEL;
+            RD_WE       <= '0';
+            if RD_SEL = '1' and RD_SEL_LAST = '0' and T80_WR_n = '0' then
+                RD_WE <= '1';                                                   -- Write at the start of the cycle,
+            end if;
+            if RD_SEL = '0' and RD_SEL_LAST = '1' then
+                RD_OFF <= RD_OFF + 1;                                           -- next byte at its end.
+            end if;
+            if M8 = '1' and RAMDISK_EN = '1' and T80_WR_n = '0' and M8_IO = X"EB" then
+                RD_OFF <= unsigned(T80_A16(15 downto 8) & T80_DO);
+            end if;
+            if M8 = '1' and RAMDISK_EN = '1' and T80_RD_n = '0' and M8_IO = X"F8" then
+                RD_OFF <= (others => '0');
+            end if;
+        end if;
+    end process;
+    RAMDISK : dpram
+        generic map (init_file => "", widthad_a => 16, width_a => 8, widthad_b => 16, width_b => 8)
+        port map (clock_a => CLKBUS(CKMASTER), address_a => std_logic_vector(RD_OFF), data_a => RD_DI, wren_a => RD_WE, q_a => RD_Q,
+                  clock_b => CLKBUS(CKMASTER), address_b => (others => '0'), data_b => (others => '0'), wren_b => '0', q_b => open);
+
+    -- MZ-800 joysticks: port F0 (F1) reads joystick 1 (2) while 8255 PA4 (PA5) is low, low active strobes (MZ-800
+    -- Technical Reference Manual, 9 Joystick; mz800emu's code tests PA5/PA6, one bit off from its own comments, and
+    -- Exolon, which strobes only PA4, then never saw the stick). Bits 0 up, 1 down, 2 left, 3 right, 4 fire 1,
+    -- 5 fire 2, low = active.
+    M8_JOY_DO <= "11" & not JOY0(5) & not JOY0(4) & not JOY0(0) & not JOY0(1) & not JOY0(2) & not JOY0(3)
+                     when M8_IO(0) = '0' and i8255_PA_O(4) = '0' else
+                 "11" & not JOY1(5) & not JOY1(4) & not JOY1(0) & not JOY1(1) & not JOY1(2) & not JOY1(3)
+                     when M8_IO(0) = '1' and i8255_PA_O(5) = '0' else
+                 X"FF";
 
     -- Video Output.
     --
-    VGATE_n    <= VGATE_ni;
+    VGATE_n    <= '0' when M8 = '1' else VGATE_ni;
 
     -- Only enable debugging LEDS if enabled in the config package.
     --

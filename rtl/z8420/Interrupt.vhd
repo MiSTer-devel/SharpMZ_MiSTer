@@ -5,6 +5,11 @@
 --
 -- Nibbles Lab. 2013-2014
 --
+-- 2026: made synchronous to CLK (clk_sys). INTR, INTA and FETCH were used as
+-- clocks; they are now edge-detected on CLK. FETCH samples the data bus from
+-- the previous CLK, because the CPU data mux stops selecting the opcode as soon
+-- as RD_n rises.
+--
 
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
@@ -14,6 +19,7 @@ use IEEE.STD_LOGIC_UNSIGNED.ALL;
 entity Interrupt is
     Port (
         -- System Signal
+        CLK                  : in  std_logic;
         RESET                : in  std_logic;
         -- CPU Signals
         DI                   : in  std_logic_vector(7 downto 0);
@@ -50,6 +56,10 @@ signal INTA                  : std_logic;
 signal IENB                  : std_logic;
 signal iINT                  : std_logic;
 signal iIEO                  : std_logic;
+signal INTR_D                : std_logic := '0';
+signal INTA_D                : std_logic := '0';
+signal FETCH_D               : std_logic := '1';
+signal DI_D                  : std_logic_vector(7 downto 0);
 
 begin
 
@@ -74,50 +84,50 @@ begin
     --
     -- Keep Interrupt Request
     --
-    process( IRES, INTR ) begin
-        if IRES='1' then
-            IREQ     <= '0';
-        elsif INTR'event and INTR='1' then
-            IREQ     <= '1';
-        end if;
-    end process;
+    process( CLK ) begin
+        if rising_edge(CLK) then
+            INTR_D   <= INTR;
+            INTA_D   <= INTA;
+            FETCH_D  <= FETCH;
+            DI_D     <= DI;
 
-    --
-    -- Interrupt Authentication
-    --
-    process( AUTHRES, INTA ) begin
-        if AUTHRES='1' then
-            IAUTH    <= '0';
-        elsif INTA'event and INTA='1' then
-            IAUTH    <= IREQ;
-        end if;
-    end process;
+            -- Interrupt request, set on the rising edge of INTR.
+            if IRES='1' then
+                IREQ     <= '0';
+            elsif INTR='1' and INTR_D='0' then
+                IREQ     <= '1';
+            end if;
 
-    --
-    -- Fetch 'RETI'
-    --
-    process( RESET, FETCH ) begin
-        if RESET='1' then
-            IED1     <= '0';
-            IED2     <= '0';
-            ICB      <= '0';
-            I4D      <= '0';
-        elsif FETCH'event and FETCH='1' then
-            IED2     <= IED1;
-            if DI=X"ED" and ICB='0' then
-                IED1 <= '1';
-            else
-                IED1 <= '0';
+            -- Acknowledge: capture the request as it was before INTA.
+            if AUTHRES='1' then
+                IAUTH    <= '0';
+            elsif INTA='1' and INTA_D='0' then
+                IAUTH    <= IREQ;
             end if;
-            if DI=X"CB" then
-                ICB  <= '1';
-            else
-                ICB  <= '0';
-            end if;
-            if DI=X"4D" then
-                I4D  <= IEI;
-            else
-                I4D  <= '0';
+
+            -- Opcode decode at the end of each M1 read (RETI = ED 4D).
+            if RESET='1' then
+                IED1     <= '0';
+                IED2     <= '0';
+                ICB      <= '0';
+                I4D      <= '0';
+            elsif FETCH='1' and FETCH_D='0' then
+                IED2     <= IED1;
+                if DI_D=X"ED" and ICB='0' then
+                    IED1 <= '1';
+                else
+                    IED1 <= '0';
+                end if;
+                if DI_D=X"CB" then
+                    ICB  <= '1';
+                else
+                    ICB  <= '0';
+                end if;
+                if DI_D=X"4D" then
+                    I4D  <= IEI;
+                else
+                    I4D  <= '0';
+                end if;
             end if;
         end if;
     end process;
