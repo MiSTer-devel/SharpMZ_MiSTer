@@ -124,7 +124,7 @@ Waiting for the hardware: the scandoubler on a CRT and a VGA monitor; Knight Lor
 - [x] Faster hardware runs: a wait before a screenshot ends when the screen matches that screenshot from a good run (`tools/mister_refs.json`, md5 of Main's PNG, several variants for a blinking cursor; `--update-refs` adds them); one ssh connection (ControlMaster); files the MiSTer already has are not copied again; `--quick` (24 tests, about 9 minutes); MZ-2000 tape tests at Fast Tape 32x. Deploying all 115 tests to the menu takes under a minute.
 - [x] Tester build `releases/SharpMZ_20261009b.rbf`: OSD Reset fixed.
 - [x] Tester build `releases/SharpMZ_20261011.rbf`: OSD Keyboard Layout (PC default), MZ-1200 keys.
-- [ ] Final release RBF after that hardware testing.
+- [x] First release `releases/SharpMZ_20261012.rbf` (2026-10-12): OSD cleaned up (Fast Tape Fastest by default, CPU Speed Normal..Fastest, Tape Sound Off/Mix/Only, Load Direct Start, no Load Keymap / Video / Graphics), project files SharpMZ.*. Full hardware suite, 133 tests, all pass (52 on the 10.0.2.192 MiSTer, 81 on mister126).
 - [ ] Later: v2 machine options (RAM size, GRAM, MZ-1R25), and removing `support/sharpmz/` from Main_MiSTer.
 - [x] MZ-2500/2520: researched in `docs/mz2500.md`; now its own project, https://github.com/alanswx/SharpMZ2500_MiSTer (`~/dev2/SharpMZ2500_MiSTer`: skeleton core, Verilator sim, docs, phased TODO).
 
