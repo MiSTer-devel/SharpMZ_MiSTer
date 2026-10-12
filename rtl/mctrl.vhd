@@ -57,7 +57,7 @@ entity mctrl is
         WARM_RESET           : in  std_logic;
         SYSTEM_RESET         : out std_logic;
 
-        -- Machine configuration, driven from the OSD status bits (sharpmz.sv). Same layout as the
+        -- Machine configuration, driven from the OSD status bits (SharpMZ.sv). Same layout as the
         -- registers the legacy HPS driver wrote at 0x1000000+.
         CFG_MODEL            : in  std_logic_vector(7 downto 0);         -- 2:0 machine model.
         CFG_DISPLAY          : in  std_logic_vector(7 downto 0);         -- 2:0 display type, 4 VRAM off, 5 GRAM off, 6 VRAM wait, 7 PCG RAM.

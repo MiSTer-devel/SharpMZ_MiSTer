@@ -12,7 +12,7 @@ repository's gitignored folders (software/, verilator test programs) and is copi
 games/SharpMZ/HWTest on the MiSTer; disk images are copied fresh for each run because the core
 writes back to them.
 
-usage: mister_test.py [--host mister.local] [--rbf output_files/sharpmz.rbf] [--only T03,T08]
+usage: mister_test.py [--host mister.local] [--rbf output_files/SharpMZ.rbf] [--only T03,T08]
                       [--out out/mister] [--no-deploy]
 """
 import argparse, datetime, hashlib, json, os, shutil, socket, subprocess, sys, time, urllib.request
@@ -34,13 +34,14 @@ MODEL = {'MZ80A': 0, 'MZ80K': 1, 'MZ80C': 2, 'MZ1200': 3, 'MZ700': 4, 'MZ80B': 5
 
 def status_bytes(model, opts=()):
     """16-byte CFG: status bit n is byte n/8, bit n%8. opts: (low_bit, width, value)."""
-    st = MODEL[model] << 35 | 1 << 51            # Keyboard Layout: Sharp (KEYS below types by position)
+    st = MODEL[model] << 35 | 1 << 51 | 1 << 21  # Keyboard Layout: Sharp (KEYS below types by position); Fast Tape: Off
+                                                 # (the core's default is now Fastest; the tests' waits were made at real speed)
     for lo, width, val in opts:
         st = st & ~(((1 << width) - 1) << lo) | (val & ((1 << width) - 1)) << lo
     return st.to_bytes(16, 'little')
 
 
-FAST_TAPE = lambda step: (21, 3, step)     # OSD Fast Tape: 0 Default, 1 Off, 2 2x .. 6 32x
+FAST_TAPE = lambda step: (21, 3, step)     # OSD Fast Tape: 0 Fastest, 1 Off, 2 2x .. 5 16x, 6 Fastest (was 32x)
 PC_KEYS = (51, 1, 0)                       # OSD Keyboard Layout: PC (the tests default to Sharp)
 MZ800_MODE = (32, 1, 1)                    # rear switch in the MZ-800 position
 
@@ -537,7 +538,7 @@ def mgl(rbf, t, remote_files):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--host', default='mister', help='ssh host (an ~/.ssh/config alias works)')
-    ap.add_argument('--rbf', default=os.path.join(ROOT, 'output_files/sharpmz.rbf'))
+    ap.add_argument('--rbf', default=os.path.join(ROOT, 'output_files/SharpMZ.rbf'))
     ap.add_argument('--only')
     ap.add_argument('--quick', action='store_true', help='a short set: one or two tests per model and feature')
     ap.add_argument('--basic', type=int, metavar='N', help='BASIC triage instead: N random BASIC programs per model')

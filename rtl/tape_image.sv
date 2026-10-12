@@ -337,7 +337,7 @@ always @(posedge clk) begin
 	end
 	S_LOAD_DATA: begin
 		if ((cnt == {1'b0, rec_size} || rpos + 32'd128 + cnt >= size) && ram_load) begin
-			// In RAM: let the machine go (sharpmz.sv then resets it once more and direct_start.sv starts the
+			// In RAM: let the machine go (SharpMZ.sv then resets it once more and direct_start.sv starts the
 			// program) and put the tape at the next record, which the reset reloads into the CMT.
 			ram_load  <= 0;
 			hist[0]   <= rpos;

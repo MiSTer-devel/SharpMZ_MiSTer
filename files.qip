@@ -1,4 +1,4 @@
-set_global_assignment -name SYSTEMVERILOG_FILE sharpmz.sv
+set_global_assignment -name SYSTEMVERILOG_FILE SharpMZ.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_image.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/wd1793.sv
 set_global_assignment -name VERILOG_FILE rtl/wd1793_mem.v
@@ -8,7 +8,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/mz_qdisk.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/mz_printer.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_ddr.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/direct_start.sv
-set_global_assignment -name SDC_FILE sharpmz.sdc
+set_global_assignment -name SDC_FILE SharpMZ.sdc
 
 set_global_assignment -name VHDL_FILE rtl/config_pkg.vhd
 set_global_assignment -name VHDL_FILE rtl/clkgen_pkg.vhd

@@ -6,8 +6,8 @@
 // netlist produced by "ghdl synth" -- see the Makefile. Its RAMs and ROMs are
 // black boxes filled by rtl_v/dpram.v and rtl_v/dprom.v.
 //
-// This stands in for sharpmz.sv: the C++ harness drives the configuration
-// inputs and the ioctl bus, including the MZF address mapping that sharpmz.sv
+// This stands in for SharpMZ.sv: the C++ harness drives the configuration
+// inputs and the ioctl bus, including the MZF address mapping that SharpMZ.sv
 // does on hardware.
 //
 module top(
@@ -49,7 +49,7 @@ module top(
    input         prn_ascii,      // OSD Printer Charset: ASCII
    output        prn_txd /*verilator public_flat*/,
 
-   // Machine configuration, as sharpmz.sv derives it from the OSD status bits.
+   // Machine configuration, as SharpMZ.sv derives it from the OSD status bits.
    input  [7:0]  cfg_model,
    input  [7:0]  cfg_display,
    input  [7:0]  cfg_display2,
@@ -153,7 +153,7 @@ module top(
    wire [7:0]  tape_b_dout;
    wire        tape_data_region;
 
-   // Tape Image Start: Direct, as sharpmz.sv: the machine is held while the first record goes to RAM, then reset
+   // Tape Image Start: Direct, as SharpMZ.sv: the machine is held while the first record goes to RAM, then reset
    // once more (64 clocks) as after a direct load; that reset also makes the tape engine load the next record.
    wire        tape_ram_load;
    reg         tape_ram_load_d = 0;
@@ -177,8 +177,8 @@ module top(
       .mounted(tape_mounted), .tape_full(tape_full), .record_no(tape_record)
    );
 
-   // Same bus mux as sharpmz.sv.
-   wire        mz_wr   = ioctl_download ? ioctl_wr   : ds_bus_active ? ds_bus_wr : tape_active & tape_wr;     // as sharpmz.sv: downloads first
+   // Same bus mux as SharpMZ.sv.
+   wire        mz_wr   = ioctl_download ? ioctl_wr   : ds_bus_active ? ds_bus_wr : tape_active & tape_wr;     // as SharpMZ.sv: downloads first
    wire [24:0] mz_addr = ioctl_download ? ioctl_addr : ds_bus_active ? ds_bus_addr : tape_active ? tape_addr : 25'h1000000;
    wire [7:0]  mz_dout = ioctl_download ? ioctl_dout : ds_bus_active ? ds_bus_dout : tape_dout;
 
@@ -191,7 +191,7 @@ module top(
       .bus_active(ds_bus_active), .bus_wr(ds_bus_wr), .bus_addr(ds_bus_addr), .bus_dout(ds_bus_dout),
       .m1_n(ds_m1_n), .mreq_n(ds_mreq_n), .rd_n(ds_rd_n), .inj_go(ds_inj_go), .inj_data(ds_inj_data));
 
-   // Tape data buffer in DDR3, as sharpmz.sv, with a behavioural DDR3 below.
+   // Tape data buffer in DDR3, as SharpMZ.sv, with a behavioural DDR3 below.
    assign tape_data_region = (mz_addr[24:16] == 9'h041);
    assign ioctl_wait = ioctl_download & tape_b_busy;
    wire [15:0] tapedata_addr;

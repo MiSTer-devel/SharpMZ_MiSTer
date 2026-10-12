@@ -59,7 +59,7 @@ so MZ-700 black became MZ-800 colour 8 (grey). mz800emu maps the MZ-700 colours 
 and colours 1-7 take the bright half. `VideoController.vhd` now sets the intensity bit to `G or R or B`. Ground
 Attack, Moty, James, Space Duel, HOBRA-Schach, Hell Diver, IS-Chess, Life, Points and Starkiller now match.
 
-**Load Direct and the MZF header.** A direct load holds the machine in a warm reset (`sharpmz.sv`, as on hardware),
+**Load Direct and the MZF header.** A direct load holds the machine in a warm reset (`SharpMZ.sv`, as on hardware),
 so the MZ-800 IPL runs afterwards and clears 10F0-11FF, where the MZF header was put. Programs that start in that
 area or read their own header there (Exploding Fist, Jumpin' Jack, Tetris, Solomon's Key, Brouk, Jack the Nipper,
 ...) failed after Load Direct; mz800emu with the header zeroed fails the same way. From tape they load normally.

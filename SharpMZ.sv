@@ -1,6 +1,6 @@
 //=======================================================================================================
 //
-// Name:            sharpmz.sv
+// Name:            SharpMZ.sv
 // Created:         June 2018
 // Author(s):       Philip Smart
 // Description:     Sharp MZ series compatible logic.
@@ -89,9 +89,9 @@ localparam CONF_STR =
 	"S3,QDFMZQ,Quick Disk;",
 	"-;",
 	"P1,Machine;",
-	"P1O[38:35],Model,MZ80A,MZ80K,MZ80C,MZ1200,MZ700,MZ80B,MZ2000,MZ800,MZ1500;",
-	"P1O[6:4],CPU Speed,Default,+1,+2,+3,+4,+5,+6,+7;",
-	"P1O[30],Boot Reset,Off,On;",
+	"P1O[38:35],Model,MZ-80A,MZ-80K,MZ-80C,MZ-1200,MZ-700,MZ-80B,MZ-2000,MZ-800,MZ-1500;",
+	"P1O[6:4],CPU Speed,Normal,2x,4x,8x,16x,Fastest;",
+	"P1O[30],MZ-80B/2000 Boot Reset,Off,On;",
 	"P1O[32],MZ-800 Mode,MZ-700,MZ-800;",
 	"P1O[39],MZ-1X03 Joysticks,Off,On;",
 	"P1O[51],Keyboard Layout,PC,Sharp;",
@@ -99,18 +99,15 @@ localparam CONF_STR =
 	"P2,Tape;",
 	"P2T[31],Rewind Tape Image;",
 	"P2O[25:24],Tape Buttons,Auto,Off,Play,Record;",
-	"P2O[23:21],Fast Tape,Default,Off,2x,4x,8x,16x,32x,Default;",
+	"P2O[23:21],Fast Tape,Fastest,Off,2x,4x,8x,16x;",
 	"P2O[27:26],Sharp ASCII Name,Off,On Save,On Load,Both;",
-	"P2O[20],Audio Source,Sound,Tape;",
-	"P2O[41],Tape Sound,Off,On;",
-	"P2O[49],Load Direct,Start Program,Reset Only;",
+	"P2O[54:53],Tape Sound,Off,Mix,Only;",
+	"P2O[49],Load Direct Start,Program,Reset Only;",
 	"P2O[52],Tape Image Start,Tape,Direct;",
 	"-;",
 	"P3,Display;",
 	"P3O[8:7],Display Type,Default,Mono 80x25,Colour 40x25,Colour 80x25;",
-	"P3O[16],Video,On,Off;",
-	"P3O[17],Graphics,On,Off;",
-	"P3O[18],VRAM Wait,Off,On;",
+			"P3O[18],VRAM Wait,Off,On;",
 	"P3O[43],MZ-800 Border,Off,On;",
 	"P3O[46:44],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
@@ -133,7 +130,6 @@ localparam CONF_STR =
 	"P4O[29],FDC ROM,Off,On;",
 	"P4F3,ROMBIN,Load System ROM,0x000000;",
 	"P4F4,ROMBIN,Load System RAM,0x100000;",
-	"P4F5,ROMBIN,Load Keymap,0x200000;",
 	"P4F6,ROMBIN,Load CGROM,0x500000;",
 	"-;",
 	"T[0],Reset;",
@@ -310,14 +306,13 @@ endfunction
 function automatic [2:0] mz_fast_tape(input [2:0] menu_sel);
 	begin
 		case(menu_sel)
-			3'd0: mz_fast_tape = 3'b110; // Core default.
+			3'd0: mz_fast_tape = 3'b101; // Fastest (the default): the 32x step, capped at clk_sys/2 (about 35 MHz).
 			3'd1: mz_fast_tape = 3'b000; // Off/original speed.
 			3'd2: mz_fast_tape = 3'b001; // 2x.
 			3'd3: mz_fast_tape = 3'b010; // 4x.
 			3'd4: mz_fast_tape = 3'b011; // 8x.
 			3'd5: mz_fast_tape = 3'b100; // 16x.
-			3'd6: mz_fast_tape = 3'b101; // 32x; every model is capped at clk_sys/2 (about 35 MHz).
-			default: mz_fast_tape = 3'b110; // Core default.
+			default: mz_fast_tape = 3'b101; // 6 (the old 32x) and 7: Fastest.
 		endcase
 	end
 endfunction
@@ -332,11 +327,16 @@ wire       fdc_present;
 wire [7:0] cfg_fdcrom  = (status[29] | cfg_mz1500 | (fdc_present & cfg_model == 3'b100)) ? (8'd1 << cfg_model) : 8'd0;  // MZ-700: the MZ-1E05 ROM comes with the interface (the MZ-1500 has its own F000 ROM)
 
 wire [7:0] cfg_reg0_model   = {5'd0, cfg_model};
-wire [7:0] cfg_reg1_display = {1'b0, status[18], status[17], status[16], 1'b0, cfg_display};  // PCG is software controlled (E010-E012).
+wire [7:0] cfg_reg1_display = {1'b0, status[18], 1'b0, 1'b0, 1'b0, cfg_display};  // video and graphics always on  // PCG is software controlled (E010-E012).
 wire [7:0] cfg_reg2_display = 8'd3;                    // Native timing (the video is native-only).
 wire [7:0] cfg_reg3_display = {4'd0, cfg_mz1500, status[32], 2'b00};   // 3: MZ-1500. 2: MZ-800 rear mode switch (0 = MZ-700, as mz800emu's default; 1 = MZ-800).
-wire [7:0] cfg_reg4_cpu     = {status[30], 4'd0, status[6:4]};
-wire [7:0] cfg_reg5_audio   = {7'd0, status[20]};
+// CPU Speed: Normal, 2x .. 16x, Fastest. The core's steps past a model's limit fall back to the original speed, so
+// Fastest (and the old +6/+7) is that model's last step: 64 MHz on the MZ-80K/80C/1200/80A (5), 56/64 MHz elsewhere
+// (4), both capped at clk_sys/2 (about 35 MHz).
+wire [2:0] cpu_fastest      = cfg_model[2] ? 3'd4 : 3'd5;
+wire [2:0] cfg_cpu_step     = (status[6:4] >= 3'd5) ? cpu_fastest : status[6:4];
+wire [7:0] cfg_reg4_cpu     = {status[30], 4'd0, cfg_cpu_step};
+wire [7:0] cfg_reg5_audio   = {7'd0, status[54:53] == 2'd2};     // Tape Sound: Only (the tape signal instead of the sound)
 wire [7:0] cfg_reg6_cmt     = {1'b0, status[27], status[26], cfg_tape_buttons, cfg_fast_tape};
 wire [7:0] cfg_reg8_userrom = cfg_userrom;
 wire [7:0] cfg_reg9_fdcrom  = cfg_fdcrom;
@@ -555,7 +555,7 @@ wire [15:0] beep_r  = has_psg ? {3'b000, audio_r_emu, 12'd0} : {1'b0, audio_r_em
 // Tape Sound: the tape signal (playback, cmt_status[6]; recording, cmt_ctrl[0]) mixed in quietly while the tape
 // moves (cmt_status[4]), like a deck's monitor speaker; Audio Source = Tape plays it instead of the sound.
 wire        tape_bit = cmt_status[4] & (cmt_status[6] | cmt_ctrl[0]);
-wire [15:0] tape_snd = (status[41] & tape_bit) ? 16'h0800 : 16'd0;
+wire [15:0] tape_snd = (status[54:53] == 2'd1 && tape_bit) ? 16'h0800 : 16'd0;   // Tape Sound: Mix
 
 // Printer (OSD Printer: UART): the MZ-700 / MZ-800 / MZ-1500 printer port, sent out of the MiSTer UART for the
 // printer daemon (rtl/mz_printer.sv).

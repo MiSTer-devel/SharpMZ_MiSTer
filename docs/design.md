@@ -9,7 +9,7 @@ How the core is put together, and the hardware facts it relies on. `TODO.md` has
 ## Structure
 
 ```
-sharpmz.sv           MiSTer top: hps_io, OSD, PLL, tape image, floppy, video/audio out
+SharpMZ.sv           MiSTer top: hps_io, OSD, PLL, tape image, floppy, video/audio out
   rtl/tape_image.sv    tape image slot (S0) <-> the CMT buffers
   rtl/tape_ddr.sv      CMT tape buffer in DDR3 (port A the CMT, port B the host download / tape image)
   rtl/direct_start.sv  Load Direct: restore 10F0-11FF after the boot and start the program

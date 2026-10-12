@@ -26,7 +26,7 @@ Needs GHDL 5.x, Verilator 5.x and Python 3 (`brew install ghdl verilator`). **Ru
    - VHDL names that are Verilog keywords (`do`, `config`) are renamed.
    - `fix_port_aliases.py` restores `SIG <= in_port;` assignments that GHDL 5.1's Verilog writer drops.
 3. `dpram`/`dprom` (Altera `altsyncram` wrappers) are black boxes, implemented by `rtl_v/dpram.v` and `rtl_v/dprom.v`. `mif2hex.py` converts the `.mif` init files for `$readmemh`, so the ROMs are built in, as on hardware.
-4. `sim.v` stands in for `sharpmz.sv` (including a behavioural DDR3 for the tape buffer, with random BUSY and read latency):
+4. `sim.v` stands in for `SharpMZ.sv` (including a behavioural DDR3 for the tape buffer, with random BUSY and read latency):
    - the OSD configuration as inputs;
    - the ioctl download bus (MZF to the tape buffer at `0x400000`/`0x410000`, direct loads into RAM at `0x100000+`);
    - the tape image (`rtl/tape_image.sv`) and floppy (`rtl/mz_fdc.sv`, `rtl/wd1793.sv`) with their image slots.
@@ -60,7 +60,7 @@ Needs GHDL 5.x, Verilator 5.x and Python 3 (`brew install ghdl verilator`). **Ru
 | `--turbo N`, `--vmode` | CPU speed step; video mode. |
 | `--trace-cpu FILE` | PC of every opcode fetch; `--trace-from`/`--trace-to` limit the frames. |
 | `--trace-io FILE` | Every I/O write: frame, PC, port, data. |
-| `--wav FILE` | Audio at 48 kHz, as `sharpmz.sv` mixes it. |
+| `--wav FILE` | Audio at 48 kHz, as `SharpMZ.sv` mixes it. |
 | `--dump-mem A:L:FILE` | Main RAM at exit (hex address and length). |
 | `--verbose` | Tape status and deck lines (`[cmt]`), record FSM and pulse widths, the tape transmitter's block type and state (`[xmit]`), MZ-800 mode changes, sound. |
 

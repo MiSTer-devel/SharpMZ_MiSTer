@@ -155,7 +155,7 @@ static void usage()
 "                         CPU's banked view; A and L in hex, e.g. 1200:100:ram.bin)\n"
 "  --trace-cpu FILE       PC of each instruction fetch\n"
 "  --trace-io FILE        each I/O write: frame,pc,port,data,MZ-800 DMD\n"
-"  --wav FILE             audio at 48 kHz, 16-bit mono (sound/tape bit + MZ-800 PSG, as sharpmz.sv)\n"
+"  --wav FILE             audio at 48 kHz, 16-bit mono (sound/tape bit + MZ-800 PSG, as SharpMZ.sv)\n"
 "  --trace-from N         start tracing at frame N; --trace-to N stops after frame N\n"
 "\n"
 "fb_hash is FNV-1a 32 over the RGB888 bytes of the active (unblanked) picture,\n"
@@ -274,7 +274,7 @@ static bool parse_args(int argc, char **argv, Options &o)
 }
 
 // ---------------------------------------------------------------------------
-// Machine configuration, as sharpmz.sv derives it from the OSD status bits.
+// Machine configuration, as SharpMZ.sv derives it from the OSD status bits.
 // ---------------------------------------------------------------------------
 struct ModelInfo { const char *name; uint8_t code; uint8_t display; uint8_t mz1500; };
 static const ModelInfo MODELS[] = {
@@ -283,10 +283,10 @@ static const ModelInfo MODELS[] = {
     {"mz1500", 4, 2, 1},                                    // an MZ-700 plus the MZ-1500 flag (display3 bit 3)
 };
 
-// sharpmz.sv mz_fast_tape(): menu step -> register value.
+// SharpMZ.sv mz_fast_tape(): menu step -> register value.
 static uint8_t fast_tape_code(int step)
 {
-    static const uint8_t t[8] = {6, 0, 1, 2, 3, 4, 5, 6};
+    static const uint8_t t[8] = {5, 0, 1, 2, 3, 4, 5, 5};   // 0 Fastest, 1 Off, 2x .. 16x, 6/7 Fastest
     return t[step & 7];
 }
 
@@ -327,7 +327,7 @@ private:
 
     FILE *flog = nullptr, *ftrace = nullptr;
 
-    // Audio capture (--wav): 48 kHz samples of AUDIO_L as sharpmz.sv mixes it.
+    // Audio capture (--wav): 48 kHz samples of AUDIO_L as SharpMZ.sv mixes it.
     FILE    *fwav = nullptr;
     FILE    *fio = nullptr;
     bool     prev_io_wr = false;
@@ -580,7 +580,7 @@ void Sim::clock()
         wav_acc += 48000;
         if (wav_acc >= (uint64_t)CLK_HZ) {
             wav_acc -= (uint64_t)CLK_HZ;
-            // As sharpmz.sv: the beeper is one PSG channel's level on the MZ-800/1500, full range elsewhere.
+            // As SharpMZ.sv: the beeper is one PSG channel's level on the MZ-800/1500, full range elsewhere.
             int beep = ((top->cfg_model & 7) == 5 || (top->cfg_display3 & 8)) ? 0x1000 : 0x4000;
             int v = (top->AUDIO_L ? beep : 0) + top->AUDIO_PSG - 0x4000;
             int16_t smp = (int16_t)v;
@@ -729,7 +729,7 @@ void Sim::write_config()
     for (auto &x : MODELS) if (opt.model == x.name) m = &x;
     top->cfg_model    = m->code;
     top->cfg_display  = m->display;                            // video/graphics/VRAM wait/PCG bits off
-    top->cfg_display2 = opt.vmode == "native" ? 3 : 1;         // sharpmz.sv: 2'b11 native, 2'b01 640x480@60
+    top->cfg_display2 = opt.vmode == "native" ? 3 : 1;         // SharpMZ.sv: 2'b11 native, 2'b01 640x480@60
     top->cfg_display3 = (opt.mz800_700 ? 0 : 4) | (m->mz1500 ? 8 : 0);   // bit 2: MZ-800 mode switch, bit 3: MZ-1500
     top->fdc_mode     = opt.fdc_mode;
     top->cfg_cpu      = (uint8_t)(opt.turbo & 7);
@@ -746,7 +746,7 @@ void Sim::write_config()
     top->cfg_cmt      = (uint8_t)((3 << 3) | fast_tape_code(opt.fast_tape)); // buttons auto, fast tape
 }
 
-// OSD ROM and RAM > Load System ROM: the file goes to download address 0x000000 + offset (sharpmz.sv passes the
+// OSD ROM and RAM > Load System ROM: the file goes to download address 0x000000 + offset (SharpMZ.sv passes the
 // address through), i.e. the 128 KB system ROM, whose first 4 KB is the MZ-80K 40-column monitor. No reset.
 void Sim::load_rom(const std::string &path, uint32_t addr)
 {
@@ -760,7 +760,7 @@ void Sim::load_rom(const std::string &path, uint32_t addr)
     for (int i = 0; i < 64; i++) clock();
 }
 
-// Same address mapping as sharpmz.sv (mz_ioctl_addr_map).
+// Same address mapping as SharpMZ.sv (mz_ioctl_addr_map).
 bool Sim::load_mzf(bool direct)
 {
     std::ifstream f(opt.mzf, std::ios::binary);
@@ -916,7 +916,7 @@ int Sim::run()
     }
     if (ftrace) fprintf(ftrace, "frame,cpu_cycle,pc\n");
 
-    // Power-on: hold reset, then configure the machine the way sharpmz.sv does.
+    // Power-on: hold reset, then configure the machine the way SharpMZ.sv does.
     top->reset = 1;
     top->warm_reset = 0;
     top->ps2_key = 0;

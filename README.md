@@ -39,8 +39,8 @@ The tape loads, the tape image and the two floppy drives are on the OSD's first 
 | Option | Description |
 | ------ | ----------- |
 | Model | MZ-80A, MZ-80K, MZ-80C, MZ-1200, MZ-700, MZ-80B, MZ-2000, MZ-800 or MZ-1500. Changing model resets the machine. |
-| CPU Speed | Default is the original speed. Each step doubles it up to the core's limit of about 32–35 MHz (MZ-700: +4; MZ-80K/A/B: +4 or +5); higher steps fall back to the original speed. |
-| Boot Reset | MZ-80B/2000: reset back into the IPL. |
+| CPU Speed | Normal is the original speed; 2x to 16x multiply it, and Fastest is the most the core can do on that model (about 35 MHz, clk_sys/2). On the MZ-700/800/1500 16x is already the fastest. |
+| MZ-80B/2000 Boot Reset | MZ-80B/2000: reset back into the IPL. |
 | Keyboard Layout | PC (default): each key types what is printed on it, as on a US PC keyboard, on every model: the core presses or releases the machine's SHIFT as needed (on the MZ-80A, @ is unshifted and " is SHIFT 2). Letters, Return, the cursor keys and so on work as in the Sharp layout, so letters type capitals as on the real machines. Characters a model doesn't have do nothing. Sharp: each key is the Sharp key in its place, with the Sharp machine's own legends (for games and for typing as on the original keyboard). On the MZ-80A, MZ-700, MZ-800 and MZ-1500, Ctrl is CTRL (CTL), Esc is BREAK and Alt is GRAPH (GRPH). |
 | MZ-1X03 Joysticks | MZ-700/MZ-1500: connect two Sharp MZ-1X03 joysticks (MiSTer joysticks 1 and 2, read on E008). The MZ-800's own joystick ports (F0/F1) are always connected. |
 | MZ-800 Mode | The MZ-800 rear switch. In MZ-800 mode the IPL switches to MZ-800 graphics before starting a program loaded from tape; in MZ-700 mode (default) programs start in MZ-700 mode, which MZ-700 software needs. Reset after changing it. |
@@ -57,11 +57,10 @@ A tape is either a single `.mzf` file (a 128-byte header followed by the program
 | Rewind Tape Image | Go back to the first program on the mounted image. |
 | Tape Image Start | Tape (default): the tape image plays from its first program, loaded as usual (`L`, `C` at the IPL menu, and so on). Direct: when an image is mounted, its first program goes straight into memory and starts, as Load Direct does, and the tape is left at the second program. A loader then reads the rest from the tape (Exolon, Knight Lore), and a BASIC tape starts BASIC with the program ready for `LOAD`. Not on the MZ-80B/2000. |
 | Tape Buttons | Auto (play or record as the machine needs), Off, Play, Record. |
-| Fast Tape | Run the CPU (and the tape) faster while the tape is moving, 2x to 32x (capped like CPU Speed: 16x and 32x are both the fastest on the MZ-700/800/1500). Default and Off are real speed. |
+| Fast Tape | Run the CPU (and the tape) faster while the tape is moving. Fastest (default) is the most the core can do (about 35 MHz); 2x to 16x are slower steps; Off is real speed, for the few programs whose loaders count time while the tape runs. |
 | Sharp ASCII Name | Convert tape file names between Sharp display codes and ASCII on save and/or load. |
-| Audio Source | The 8253 sound, or the tape signal. |
-| Tape Sound | Mix the tape signal in quietly while the tape is playing or recording, as the machines' own tape monitor would (Audio Source stays on the sound). |
-| Load Direct | Start Program (default): after Load Direct to RAM the machine boots for about 1.5 s, then the core puts back what the load wrote to 10F0-11FF (the boot uses that area), sets the memory map and jumps to the exec address with SP at 10F0, as after a tape load. Only machine-code files (MZF type 01) are started; BASIC programs and data just reset. Reset Only: just reset, then start it yourself with `J` and the exec address in the monitor; the MZF header is in RAM at 10F0 as after a tape load (load address at 10F0+20, exec at 10F0+22, low byte first). The MZ-80B and MZ-2000 always reset only. |
+| Tape Sound | Off (default); Mix: the tape signal mixed in quietly while the tape plays or records, as the machines' own tape monitor would; Only: the tape signal instead of the machine's sound. |
+| Load Direct Start | Program (default): after Load Direct to RAM the machine boots for about 1.5 s, then the core puts back what the load wrote to 10F0-11FF (the boot uses that area), sets the memory map and jumps to the exec address with SP at 10F0, as after a tape load. Only machine-code files (MZF type 01) are started; BASIC programs and data just reset. Reset Only: just reset, then start it yourself with `J` and the exec address in the monitor; the MZF header is in RAM at 10F0 as after a tape load (load address at 10F0+20, exec at 10F0+22, low byte first). The MZ-80B and MZ-2000 always reset only. |
 
 **Saving programs.** MiSTer can't grow a mounted file, so saving needs a tape image with spare room. Make a blank one with `tools/make_blank_tape.py` (default 1 MB, zero-filled), mount it as the Tape Image, and SAVE as usual (for example `S120012FF1200` then a file name in the MZ-700 monitor). Each program is appended after the last one. If the image is read-only or full, the save is skipped.
 
@@ -83,7 +82,6 @@ Writes go back to the image; mount a copy if you want to keep the original.
 | Option | Description |
 | ------ | ----------- |
 | Display Type | Default follows the model (MZ-700/800 colour 40x25, MZ-80B/2000 mono 80x25, others mono 40x25). |
-| Video / Graphics | Turn the character or graphics layer off. |
 | Scandoubler Fx | None (native 15 kHz), HQ2x or CRT scanlines 25/50/75%: doubles the picture to 31 kHz for VGA monitors. MiSTer.ini `forced_scandoubler=1` doubles it too. |
 | MZ-800 Border | Show the MZ-800 border colour around the picture (464 x 288 instead of 320 x 200). |
 | VRAM Wait | Insert the original wait states when the CPU accesses video RAM during the display (MZ-80A/1200/700). Some software relies on this timing. |
@@ -94,7 +92,7 @@ Writes go back to the image; mount a copy if you want to keep the original.
 | Option | Description |
 | ------ | ----------- |
 | User ROM / FDC ROM | Map the user ROM (E800) or FDC ROM (F000) for the current model. |
-| Load System ROM / RAM / Keymap / CGROM | Replace the built-in combined monitor ROM, the initial RAM image, the keymaps or the character generator ROM. The files use the same layout as `rtl/software/roms/combined_*.rom`. |
+| Load System ROM / RAM / CGROM | Replace the built-in combined monitor ROM, the initial RAM image or the character generator ROM. The files use the same layout as `rtl/software/roms/combined_*.rom`. (The keymap is built in; Keyboard Layout chooses PC or Sharp.) |
 
 **Alternative monitor ROMs.** Load System ROM writes the file from the start of the core's 128 KB system ROM
 (`rtl/software/roms/combined_mrom.rom`), through the normal MiSTer file download. The first 4 KB of that ROM is the
@@ -147,7 +145,7 @@ The MZ-700 printer port is I/O FE/FF and the MZ-800/1500 one the Z80 PIO (port B
 
 ## Building and Simulation
 
-* **FPGA:** open `sharpmz.qpf` in Quartus Prime Lite 17.0 and compile.
+* **FPGA:** open `SharpMZ.qpf` in Quartus Prime Lite 17.0 and compile.
 * **Simulation:** `verilator/` runs the core headless with GHDL and Verilator: boot any model, type at it, load and save tapes, and write screenshots. `make test` runs the regression tests. See `verilator/README.md`.
 * **Status and open work:** `TODO.md`. **Design notes:** `docs/design.md`.
 
