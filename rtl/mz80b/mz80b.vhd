@@ -625,10 +625,12 @@ begin
     -- IPL monitor rom at 0000-07ff. 
     -- If NST goes High (due to the IPL setting it), then a flip flop is clocked setting BOOTSTRAP_n to inactive which places RAM
     -- into the normal running state at 0000-7fff and the IPL monitor rom is disabled.
-    -- BOOT_RESET (external input) or BST_n when Low sets the BOOTSTRAP_n so that IPL mode is entered and the IPL monitor rom
-    -- is active at 0000. 
+    -- A reset with the OSD Boot Reset on (CONFIG(BOOT_RESET)), or BST_n when Low, sets BOOTSTRAP_n so that IPL mode is
+    -- entered and the IPL monitor rom is active at 0000. Boot Reset acts at the reset only: it used to hold BOOTSTRAP_n
+    -- for as long as the option was on, so the IPL could never switch to RAM (NST) and a disk boot (CP/M from the IPL)
+    -- restarted the IPL for ever ("IPL is loading" flashing).
     --
-    process( COLD_RESET, CONFIG(BOOT_RESET), BST_n, CLKBUS(CKMASTER), NST )
+    process( COLD_RESET, CONFIG(BOOT_RESET), BST_n, CLKBUS(CKMASTER), NST, SYSTEM_RESET )
     begin
         -- A cold reset sets up the initial state, further resets just reset variables as needed.
         --
@@ -639,13 +641,11 @@ begin
             
             if CLKBUS(CKENCPU) = '1' then
 
-                if CONFIG(BOOT_RESET) = '1' or BST_n = '0' then
-                    -- Only a boot reset or BST_n can set the BOOTSTRAP signal. A system reset just
+                if (CONFIG(BOOT_RESET) = '1' and SYSTEM_RESET = '1') or BST_n = '0' then
+                    -- Only a boot reset or BST_n can set the BOOTSTRAP signal. A system reset without Boot Reset just
                     -- resets the cpu and peripherals.
                     --
-                    if CONFIG(BOOT_RESET) = '1' or BST_n = '0' then
-                        BOOTSTRAP_n <= '0'; 
-                    end if;
+                    BOOTSTRAP_n <= '0'; 
     
                 else 
                     -- If the NST signal goes high, then reset the BOOTSTRAP signal. This signal can only be set

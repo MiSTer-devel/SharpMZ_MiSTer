@@ -1,0 +1,25 @@
+**  MONITOR SA-1510  **
+*F
+BOOT DRIVE ?
+IPL IS LOADING Disk Basic
+
+.................................
+
+  BASIC interpreter  SA-6510
+
+  Copyright 1981 by SHARP Corp.
+
+.................................
+
+ 26604 Bytes
+Ready
+
+
+
+
+
+
+
+
+
+

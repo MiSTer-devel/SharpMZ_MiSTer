@@ -77,7 +77,14 @@ module tape_image
 	// Status for the OSD/LEDs.
 	output reg        mounted,
 	output reg        tape_full,
-	output reg  [7:0] record_no
+	output reg  [7:0] record_no,
+
+	// Messages for the overlay (tape_osd.sv): a pulse on msg with what happened.
+	output reg        msg = 0,
+	output reg  [1:0] msg_kind,        // 0 record ready (record_no), 1 end of tape, 2 saved, 3 full
+	output reg  [7:0] rec_total = 0,   // records on the tape
+	output reg[127:0] rec_name,        // header bytes 1-16 of the record (byte 1 in bits 7:0)
+	output            rec_qd           // the record is an MZ-5Z001 Quick Disk BASIC file (type 02 loading at A215)
 );
 
 // CMT_BUS_OUT bit positions (mctrl_pkg.vhd).
@@ -137,6 +144,8 @@ reg [15:0] rec_size;       // Data size of the record at rpos.
 reg        loaded;         // The CMT buffer holds the record at rpos.
 reg        direct_pending = 0;  // Start direct: the first record goes to RAM when it is loaded.
 reg [15:0] load_addr;      // Its load address (header bytes 20-21).
+reg  [7:0] rec_type;       // Its type (header byte 0).
+assign rec_qd = (rec_type == 8'h02) & (load_addr == 16'hA215);
 
 // Previous record offsets, for APSS seek back.
 reg [31:0] hist[8];
@@ -164,6 +173,7 @@ wire [22:0] off_lba = img_off[31:9];
 always @(posedge clk) begin
 	buf_we <= 0;
 	bus_wr <= 0;
+	msg    <= 0;
 
 	cmt_last    <= cmt_status;
 	rewind_last <= rewind;
@@ -269,6 +279,7 @@ always @(posedge clk) begin
 
 	// ---- Find the end of the recorded area --------------------------------------------------
 	S_SCAN: begin
+		if (pos == 0) rec_total <= 0;
 		if (pos + 32'd128 > size) begin
 			wpos  <= pos;
 			state <= S_LOAD;
@@ -289,6 +300,7 @@ always @(posedge clk) begin
 		img_off  <= pos + 32'd19; ret <= S_SCAN_HI; state <= S_IMG_RD;
 	end
 	S_SCAN_HI: begin
+		rec_total <= rec_total + 1'd1;
 		pos   <= pos + 32'd128 + {img_byte, len[7:0]};
 		state <= S_SCAN;
 	end
@@ -296,13 +308,19 @@ always @(posedge clk) begin
 	// ---- Copy the record at rpos into the CMT buffer ---------------------------------------
 	S_LOAD: begin
 		loaded <= 0;
-		if (rpos + 32'd128 > size) state <= S_IDLE;          // End of tape.
+		if (rpos + 32'd128 > size) begin                       // End of tape.
+			msg <= 1; msg_kind <= 2'd1;
+			state <= S_IDLE;
+		end
 		else begin
 			img_off <= rpos; ret <= S_LOAD_ATTR; state <= S_IMG_RD;
 		end
 	end
 	S_LOAD_ATTR: begin
-		if (img_byte == 8'h00) state <= S_IDLE;                 // End of tape.
+		if (img_byte == 8'h00) begin                            // End of tape.
+			msg <= 1; msg_kind <= 2'd1;
+			state <= S_IDLE;
+		end
 		else begin
 			img_off <= rpos + 32'd18; ret <= S_LOAD_LO; state <= S_IMG_RD;
 		end
@@ -327,6 +345,8 @@ always @(posedge clk) begin
 		end
 	end
 	S_LOAD_HDR_WR: if (!bus_busy) begin
+		if (cnt >= 17'd1 && cnt <= 17'd16) rec_name[8*(cnt[3:0] - 4'd1) +: 8] <= img_byte;
+		if (cnt == 17'd0)  rec_type <= img_byte;
 		if (cnt == 17'd20) load_addr[7:0]  <= img_byte;
 		if (cnt == 17'd21) load_addr[15:8] <= img_byte;
 		bus_addr <= ram_load ? SYSRAM + 25'h10F0 + cnt[6:0] : CMT_HDR + cnt[6:0];
@@ -348,6 +368,7 @@ always @(posedge clk) begin
 		end
 		else if (cnt == {1'b0, rec_size} || rpos + 32'd128 + cnt >= size) begin
 			loaded <= 1;
+			msg <= 1; msg_kind <= 2'd0;
 			state  <= S_IDLE;
 		end else begin
 			img_off <= rpos + 32'd128 + cnt; ret <= S_LOAD_DATA_WR; state <= S_IMG_RD;
@@ -377,6 +398,7 @@ always @(posedge clk) begin
 		cnt <= 0;
 		if (readonly || wpos + len > size) begin
 			tape_full <= 1;
+			msg <= 1; msg_kind <= 2'd3;
 			state     <= S_IDLE;
 		end
 		else state <= S_SAVE_COPY;
@@ -390,6 +412,7 @@ always @(posedge clk) begin
 		end
 	end
 	S_SAVE_COPY_WR: begin
+		if (cnt >= 17'd1 && cnt <= 17'd16) rec_name[8*(cnt[3:0] - 4'd1) +: 8] <= core_byte;
 		img_off  <= wpos + cnt;
 		img_byte <= core_byte;
 		cnt      <= cnt + 1'd1;
@@ -405,6 +428,8 @@ always @(posedge clk) begin
 			state  <= S_FLUSH_WAIT_ACK;
 		end else begin
 			wpos  <= wpos + len;
+			msg <= 1; msg_kind <= 2'd2;
+			rec_total <= rec_total + 1'd1;                     // (the overlay shows SAVED and the new record's number)
 			state <= S_IDLE;
 		end
 	end
