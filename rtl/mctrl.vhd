@@ -106,7 +106,7 @@ begin
     process (COLD_RESET, CLKBUS(CKMASTER))
     begin
         if COLD_RESET = '1' then
-            CONFIG(CONFIG_WIDTH) <= "0000000000000000000000000000000000011000000000000000000000011001000001000";
+            CONFIG(CONFIG_WIDTH) <= "00000000000000000000000000000000000011000000000000000000000011001000001000";
             DEBUG(DEBUG_WIDTH)   <= "0000000000000000";
 
         elsif CLKBUS(CKMASTER)'event and CLKBUS(CKMASTER)='1' then
@@ -432,8 +432,10 @@ begin
                 CONFIG(MZ800_MODE)   <= REGISTER_DISPLAY3(2);
                 if REGISTER_MODEL(2 downto 0) = "100" then
                     CONFIG(IS_MZ1500) <= REGISTER_DISPLAY3(3);
+                    CONFIG(REGION_JAPAN) <= REGISTER_DISPLAY3(4);
                 else
                     CONFIG(IS_MZ1500) <= '0';
+                    CONFIG(REGION_JAPAN) <= '0';
                 end if;
                 CONFIG(TURBO)        <= REGISTER_CPU(2 downto 0);
                 CONFIG(FASTTAPE)     <= REGISTER_CMT(2 downto 0);
@@ -480,7 +482,7 @@ begin
             if CFG_DISPLAY(2 downto 0) /= REGISTER_DISPLAY(2 downto 0) then
                 RESET_MACHINE <= '1';
             end if;
-            if CFG_DISPLAY3(3) /= REGISTER_DISPLAY3(3) then                -- MZ-700 <-> MZ-1500 (same model code).
+            if CFG_DISPLAY3(4 downto 3) /= REGISTER_DISPLAY3(4 downto 3) then   -- MZ-700 <-> MZ-1500 (same model code), Region (the monitor).
                 RESET_MACHINE <= '1';
             end if;
             if CFG_CPU /= REGISTER_CPU and REGISTER_CPU(7) = '1' then

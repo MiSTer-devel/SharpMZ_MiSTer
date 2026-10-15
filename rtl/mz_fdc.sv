@@ -54,6 +54,7 @@ module mz_fdc
 
 	input         b_unit2,        // the drive B slot answers as unit 2 (3rd drive) instead of unit 1 (OSD)
 	output        busy,           // drive activity (LED)
+	output        wait_req,       // a command is running and no byte is ready (MZ-80A interface: CPU WAIT, see below)
 	output        present         // the interface is present (MZ-700: its ROM at F000 is on the same card)
 );
 
@@ -158,6 +159,11 @@ generate
 endgenerate
 
 wire       drq_sel = sel_a ? fdc_drq[0] : sel_b ? fdc_drq[1] : 1'b0;
+wire       busy_sel = sel_a ? fdc_busy[0] : sel_b ? fdc_busy[1] : 1'b0;
+
+// The MZ-80A interface ROM doesn't poll: its read and write loops run through an opcode fetch at F3FE (F7FE), and the
+// interface holds the CPU in WAIT there until the chip has a byte (DRQ) or the command ends (sharpmz.vhd).
+assign wait_req = enable & busy_sel & ~drq_sel;
 
 // A turbo CPU can re-enter the interrupt routine before the chip has dropped DRQ for the byte
 // just transferred; hold the interrupt off from the data access until DRQ falls.
@@ -172,5 +178,15 @@ assign io_din = sel_a ? ~fdc_dout[0] : sel_b ? ~fdc_dout[1] : 8'hFF;
 assign int_n  = ~(enable & eint & drq_sel & ~drq_taken);
 assign busy   = |(fdc_busy & mounted);
 assign present = enable;
+
+`ifdef FDC_IODBG
+// Port trace for the sim (make ... -DFDC_IODBG): every read and write of D8-DF, once per access.
+reg io_rd_l = 0, io_wr_l = 0;
+always @(posedge clk_sys) begin
+	io_rd_l <= io_rd; io_wr_l <= io_wr;
+	if (io_wr & ~io_wr_l & io_addr[7:3] == 5'b11011) $display("fdcio: OUT %02x <- %02x", io_addr, io_dout);
+	if (io_rd_l & ~io_rd & io_addr[7:3] == 5'b11011) $display("fdcio: IN  %02x -> %02x", io_addr, io_din);
+end
+`endif
 
 endmodule

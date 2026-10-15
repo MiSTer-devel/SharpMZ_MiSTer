@@ -16,7 +16,7 @@ How it compares with the original v2 core, NibblesLab's DE0 cores, mz800emu and 
 
 * Z80 CPU at the original speed (2 MHz MZ-80K/C/1200/A, 3.547 MHz MZ-700/800, 4 MHz MZ-80B/2000), with turbo steps up to about 32–35 MHz.
 * Native video timing, 15.6 kHz (MZ-700/800/1500 50 Hz PAL, the others 60 Hz), scaled by the MiSTer framework for HDMI; analog output gets the native 15 kHz signal, or 31 kHz through the scandoubler (HQ2x, scanlines) for VGA monitors.
-* 40x25 and 80x25, mono and colour character modes; programmable character generator (PCG); MZ-80B/2000 graphics RAM.
+* 40x25 and 80x25, mono and colour character modes; programmable character generator (PCG): the MZ-700's HAL PCG-700 (E010-E012; programs switch it on), the MZ-1500's PCG; MZ-80B/2000 graphics RAM.
 * MZ-800: IPL and 9Z-504M monitor, MZ-700 and MZ-800 modes with the MZ-800 memory map, all 320x200/640x200 graphics modes with hardware scroll, the SN76489 sound chip and the Z80 PIO.
 * Floppy disk (MB8876 interface on the MZ-700, MZ-800, MZ-80B and MZ-2000): two drives from Extended DSK (`.dsk`) or D88/D77 images. The MZ-800 IPL boots CP/M 1.x, 2.3 and 4.1 disks; the MZ-80B/2000 IPL boots Disk BASIC, CP/M and TF-DOS.
 * 8253 sound or the tape signal on the audio output.
@@ -32,7 +32,7 @@ Copy `SharpMZ_<date>.rbf` from `releases/` to the `_Computer` folder of your MiS
 
 The core boots as an MZ-80A with the SA-1510 monitor. Press F12 for the OSD.
 
-The tape loads, the tape image and the two floppy drives are on the OSD's first page; the other settings are in the Machine, Tape, Display, Floppy and ROM and RAM pages below. MGL files can load any of the first-page entries (`<file type="f" index="1">` for Load Tape to CMT, `type="s" index="0"` for the tape image, `index="1"`/`"2"` for the drives).
+Load Direct, the tape image, the two floppy drives and the Quick Disk are on the OSD's first page; the other settings are in the Machine, Tape, Display, Floppy and ROM and RAM pages below. MGL files can load any of the first-page entries (`<file type="f" index="2">` for Load Direct to RAM, `type="s" index="0"` for the tape image, `index="1"`/`"2"` for the drives).
 
 ### Machine
 
@@ -44,6 +44,7 @@ The tape loads, the tape image and the two floppy drives are on the OSD's first 
 | Keyboard Layout | PC (default): each key types what is printed on it, as on a US PC keyboard, on every model: the core presses or releases the machine's SHIFT as needed (on the MZ-80A, @ is unshifted and " is SHIFT 2). Letters, Return, the cursor keys and so on work as in the Sharp layout, so letters type capitals as on the real machines. Characters a model doesn't have do nothing. Sharp: each key is the Sharp key in its place, with the Sharp machine's own legends (for games and for typing as on the original keyboard). On the MZ-80A, MZ-700, MZ-800 and MZ-1500, Ctrl is CTRL (CTL), Esc is BREAK and Alt is GRAPH (GRPH). |
 | MZ-1X03 Joysticks | MZ-700/MZ-1500: connect two Sharp MZ-1X03 joysticks (MiSTer joysticks 1 and 2, read on E008). The MZ-800's own joystick ports (F0/F1) are always connected. |
 | MZ-800 Mode | The MZ-800 rear switch. In MZ-800 mode the IPL switches to MZ-800 graphics before starting a program loaded from tape; in MZ-700 mode (default) programs start in MZ-700 mode, which MZ-700 software needs. Reset after changing it. |
+| Region | Europe (default) or Japan, for the MZ-700. Japan is the Japanese MZ-700: its character generator, with katakana in place of the European lower case (the MZ-1500's CG, MAME `mz700fon.jpn`), its monitor ROM 1Z-009B (Japanese software prints through it: Tiny Xevious's side panel reads correctly only with it), and 60 Hz NTSC timing instead of 50 Hz PAL, so games run at their original speed. Japanese games and adventures need it (Donkey Gorilla, Namco's MZ-700 titles). The MZ-1500 was only sold in Japan and is always Japanese (60 Hz). Changing it resets the machine. |
 
 ### Tape
 
@@ -51,11 +52,11 @@ A tape is either a single `.mzf` file (a 128-byte header followed by the program
 
 | Option | Description |
 | ------ | ----------- |
-| Load Tape to CMT | Put an `.mzf` on the virtual tape. Start it from the machine as normal (`L` or `LOAD` in the monitor, `LOAD` in BASIC). |
 | Load Direct to RAM | Copy the program straight into memory at its load address and start it (see Load Direct below). |
-| Tape Image | The cassette itself, and the replacement for the old core's tape queue. Mount an `.mzt` (several programs back to back) or `.mzf`. The first program is ready to play; when the machine stops the tape after reading one program, the next one is loaded, so multi-part programs and loaders work. On the MZ-80B/2000 the APSS deck controls work on it: fast forward/rewind to the next/previous program, eject rewinds to the start. Programs saved with SAVE are appended to the image. |
+| Tape Image | The cassette itself (it replaces the old core's tape queue and Load Tape to CMT). Mount an `.mzt` (several programs back to back) or `.mzf`. The first program is ready to play; when the machine stops the tape after reading one program, the next one is loaded, so multi-part programs and loaders work. On the MZ-80B/2000 the APSS deck controls work on it: fast forward/rewind to the next/previous program, eject rewinds to the start. Programs saved with SAVE are appended to the image. |
 | Rewind Tape Image | Go back to the first program on the mounted image. |
 | Tape Image Start | Tape (default): the tape image plays from its first program, loaded as usual (`L`, `C` at the IPL menu, and so on). Direct: when an image is mounted, its first program goes straight into memory and starts, as Load Direct does, and the tape is left at the second program. A loader then reads the rest from the tape (Exolon, Knight Lore), and a BASIC tape starts BASIC with the program ready for `LOAD`. Not on the MZ-80B/2000. |
+| Tape Messages | On (default): for three seconds after the tape image moves, a line at the bottom of the picture says where it is, for example `TAPE 2/5 EXOLON` (the program now ready to play, out of five on the tape), `TAPE 6/5 END`, `TAPE SAVED 6 MYPROG` or `TAPE FULL`. |
 | Tape Buttons | Auto (play or record as the machine needs), Off, Play, Record. |
 | Fast Tape | Run the CPU (and the tape) faster while the tape is moving. Fastest (default) is the most the core can do (about 35 MHz); 2x to 16x are slower steps; Off is real speed, for the few programs whose loaders count time while the tape runs. |
 | Sharp ASCII Name | Convert tape file names between Sharp display codes and ASCII on save and/or load. |
@@ -68,8 +69,8 @@ A tape is either a single `.mzf` file (a 128-byte header followed by the program
 
 | Option | Description |
 | ------ | ----------- |
-| Floppy Drive A / B | Mount an Extended DSK or D88/D77 image (up to 2 MB: 720 KB CP/M disks and 1.44 MB HD disks). With a disk in drive A, the MZ-800 and MZ-80B IPLs boot it at reset; on the MZ-700 type `J F000` at the monitor (the interface brings its MZ-1E05 ROM). The interface is available on the MZ-700, MZ-800, MZ-80B and MZ-2000. |
-| Quick Disk | Mount a Quick Disk image: a raw dump (`.qdf`) or mz800emu's `.mzq`. Built into the MZ-1500 (press `Q` at the IPL menu); on the MZ-800 it appears while an image is mounted. Writes (BASIC `INIT "QD:"`, `SAVE`) go back to the image, which must be full size: make a blank one with `tools/make_blank_qd.py`. |
+| Floppy Drive A / B | Mount an Extended DSK or D88/D77 image (up to 2 MB: 720 KB CP/M disks and 1.44 MB HD disks). With a disk in drive A, the MZ-800 and MZ-80B IPLs boot it at reset; on the MZ-700 type `J F000` at the monitor (the interface brings its MZ-1E05 ROM). The interface is available on the MZ-700, MZ-800, MZ-80A, MZ-80B and MZ-2000. On the MZ-80A type `F` at the monitor and Return for drive 1 (the interface ROM boots, for example, SA-6510 Disk BASIC). |
+| Quick Disk | Mount a Quick Disk image: a raw dump (`.qdf`) or mz800emu's `.mzq`. Built into the MZ-1500 (press `Q` at the IPL menu); on the MZ-800 it appears while an image is mounted. Writes (BASIC `INIT "QD:"`, `SAVE`) go back to the image, which must be full size: make a blank one with `tools/make_blank_qd.py`. A tape (`.mzt` or `.mzf`) can be mounted here too: each of its programs becomes a file on the disk (read only). Many MZ-1500 Quick Disk titles survive only as tapes: mount their side B (or the program) here. For a BASIC program, boot MZ-5Z001 BASIC from its disk or tape, then mount the program's tape here and `LOAD` it. The tape message starts `QD:` (instead of `TAPE`) for such a program when it is mounted as a tape on the MZ-1500. |
 | Floppy Interface | Auto (present only while a disk is mounted, so the IPL doesn't stop at "Make ready FD"), On or Off. |
 | Floppy CRC Errors | Ignore (default): sectors the disk image marks as read with a CRC error are read as good, which suits most dumps. Report: the drive reports CRC ERROR for them, for software that checks (copy protection). |
 | Drive B Unit | Which unit the drive B slot answers as: the 2nd drive (B:), or the 3rd, where the MZ-800 CP/M 4.1 HD driver keeps its 1440 KB drive C:. Mount a 1.44 MB image there and use C:. |
@@ -92,7 +93,7 @@ Writes go back to the image; mount a copy if you want to keep the original.
 | Option | Description |
 | ------ | ----------- |
 | User ROM / FDC ROM | Map the user ROM (E800) or FDC ROM (F000) for the current model. |
-| Load System ROM / RAM / CGROM | Replace the built-in combined monitor ROM, the initial RAM image or the character generator ROM. The files use the same layout as `rtl/software/roms/combined_*.rom`. (The keymap is built in; Keyboard Layout chooses PC or Sharp.) |
+| Load System ROM / RAM / CGROM | Replace the built-in combined monitor ROM, the initial RAM image or the character generator ROM. The files use the same layout as `rtl/software/roms/combined_*.rom`. The System ROM and CGROM you choose are remembered: the core loads them again every time it starts (and starts on them), until you choose another. A `boot.rom` in `games/SharpMZ` is loaded at start as well. (The keymap is built in; Keyboard Layout chooses PC or Sharp.) |
 
 **Alternative monitor ROMs.** Load System ROM writes the file from the start of the core's 128 KB system ROM
 (`rtl/software/roms/combined_mrom.rom`), through the normal MiSTer file download. The first 4 KB of that ROM is the
@@ -126,12 +127,12 @@ The MZ-700 printer port is I/O FE/FF and the MZ-800/1500 one the Z80 PIO (port B
 
 * MZ-2000: the character ROM is MAME's `font.bin`, which was rebuilt by hand from bitmaps (MAME marks it a bad dump); a few katakana glyphs may differ from the real IX0286PA ROM.
 * MZ-800: checked in simulation against the mz800emu emulator, still being tested on hardware. The border colour is an option (Display > MZ-800 Border). Joysticks work in Knight Lore and Exolon in simulation; the RAM disk is new. Load Direct starts the program as mz800emu's direct load does, so programs that start in or read their MZF header at 10F0 (Exploding Fist, Jumpin' Jack, Solomon's Key) work (`docs/triage.md`).
-* Floppy: the MZ-80K/80A floppy interface isn't implemented. 1.44 MB images work as CP/M 4.1's HD drive C: (Drive B Unit: 3rd), read and write, on hardware. Writing works (CP/M SAVE on hardware); drive B and writes at turbo speeds are untested.
+* Floppy: the MZ-80K floppy interface isn't implemented (the MZ-80A's is). 1.44 MB images work as CP/M 4.1's HD drive C: (Drive B Unit: 3rd), read and write, on hardware. Writing works (CP/M SAVE on hardware); drive B and writes at turbo speeds are untested.
 * The author's framebuffer graphics extension (bitmap graphics for the MZ-700/80A) isn't available in this version.
 * The MZ-80B/2000 have had little testing beyond a handful of tapes and disks (see `TODO.md`).
-* Many MZ-1500 Quick Disk titles are archived as two tape images (side A a "DATA" loader that asks for side B). They don't run from tape; `tools/mzf2qdf.py OUT.qdf SIDE.mzt` makes a Quick Disk of each side (answer `Y` to "SET PROGRAM QD ?" after swapping in side B). `tools/qdinfo.py` lists a Quick Disk image's files and checks their CRCs.
+* Many MZ-1500 Quick Disk titles are archived as two tape images (side A a "DATA" loader that asks for side B). Side A loads from the tape image; when it asks for side B ("SET PROGRAM QD ?"), mount side B's `.mzt` as the Quick Disk and answer `Y`. (`tools/mzf2qdf.py OUT.qdf SIDE.mzt` still makes a real Quick Disk image of a tape, the same disk the core shows.) `tools/qdinfo.py` lists a Quick Disk image's files and checks their CRCs.
 * Reset: OSD Reset (or Reset and close OSD), the MiSTer's USER button and LCtrl+LAlt+RAlt reset the machine; the physical reset button reloads it from cold. Before 2026-10-09 the OSD Reset entries did nothing.
-* MZ-1500 BASIC programs need MZ-5Z001 BASIC loaded first. Some tape images in the year-based collection say file type 02, which MZ-5Z001 rejects ("Illegal filemode"); Zulpoko Daisakusen is one, and it fails the same way in mz1500emu.
+* MZ-1500 BASIC programs need MZ-5Z001 BASIC loaded first. Some tape images in the year-based collection say file type 02 (Zulpoko Daisakusen, Techno City Cars, Bacterianns): they are Quick Disk BASIC files dumped to tape, and MZ-5Z001 only loads them from a Quick Disk ("Illegal filemode" from tape). Mount the BASIC tape and then the program's tape in the Quick Disk slot (see Quick Disk above); Zulpoko runs that way.
 * Tape recordings (the No-Intro "Waveform" sets, `.wav`/`.flac`) convert to MZF with `tools/wav2mzf.py RECORDING [OUTDIR]` (standard Sharp format only, not turbo loaders).
 
 ## Design Summary

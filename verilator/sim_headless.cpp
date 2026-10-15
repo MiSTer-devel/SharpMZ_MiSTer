@@ -58,6 +58,7 @@ struct Options {
     uint32_t type_press = 3, type_release = 3;
     uint32_t shift_lead = 0;                 // --shift-lead N: a shifted character presses SHIFT N frames before its key
     bool     tape_direct = false;            // --tape-direct: OSD Tape Image Start: Direct
+    bool     tape_msgs = false;              // --tape-msgs: OSD Tape Messages: On (the core's default; off here for the tests)
     bool     key_sharp = true;               // --key-layout pc|sharp (the core's default is PC; the tests type by position)
     std::set<uint32_t> screenshots;
     bool     dump_range = false;
@@ -74,12 +75,19 @@ struct Options {
     std::map<uint32_t, std::string> qd_swaps;   // frame -> Quick Disk image to mount then (side B etc.)
     std::string trace_file;
     std::string wav_file;
+    std::string wav_out_file;
+    bool        trace_cxxx = false;                // --wav-out: the core's final stereo output (sharpmz_top audio_l/r)
     std::string io_file;
     uint32_t trace_from = 0, trace_to = UINT32_MAX;
     bool     quiet = false;
     bool     verbose = false;
     std::string tape_image;
     std::string fdd;
+    uint32_t    fdd_frame = 0;
+    std::vector<std::string> osd;            // --osd "Name=Value, ...": OSD options by name (SharpMZ.sv CONF_STR)
+    bool        osd_list = false;            // --osd-list: print the OSD options and their values, then exit
+    std::string conf_str_file = "../SharpMZ.sv";
+    bool        boot_reset = false;          // --boot-reset: OSD MZ-80B/2000 Boot Reset (a reset goes back to the IPL)               // --fdd-frame N: mount --fdd at frame N (after the boot), as from the OSD
     std::string qd;
     bool        qd_readonly = false;
     bool        ramdisk = false;
@@ -126,6 +134,10 @@ static void usage()
 "  --ramdisk              MZ-800 64 KB RAM disk board (OSD MZ-800 RAM Disk)\n"
 "  --joy0 BITS            joystick 1 held all run (MiSTer bits: 0 right, 1 left, 2 down, 3 up, 4 fire 1, 5 fire 2)\n"
 "  --qd FILE              Quick Disk image (.mzq or .qdf; MZ-1500, MZ-800), written back; --qd-readonly\n"
+"  --osd \"NAME=VALUE, ...\"  set OSD options by their names and values in SharpMZ.sv (e.g. \"Model=MZ-80B,\n"
+"                         Fast Tape=Off\"); repeatable; applied after the options below. --osd-list lists them\n"
+"  --boot-reset           OSD MZ-80B/2000 Boot Reset: a reset goes back to the IPL\n"
+"  --fdd-frame N          mount the --fdd image at frame N instead of at the start (as from the OSD, later)\n"
 "  --qd-swap FRAME:FILE   mount another Quick Disk image at FRAME (side B); repeatable\n"
 "  --printer FILE         printer connected (OSD Printer: UART); the UART line is decoded into FILE\n"
 "  --printer-baud N       UART speed (default 9600)\n"
@@ -141,6 +153,7 @@ static void usage()
 "  --type-rate P:R        frames per key press:release (default 3:3)\n"
 "Images and logs:\n"
 "  --screenshot N         PNG of frame N (repeatable)\n"
+"  --tape-msgs            OSD Tape Messages: On (the tape position over the picture; off in the sim by default)\n"
 "  --tape-direct          OSD Tape Image Start: Direct (the tape image's first record to RAM and started)\n"
 "  --key-layout pc|sharp  OSD Keyboard Layout (default sharp, by position; the core defaults to pc)\n"
 "  --shift-lead N         --type presses SHIFT N frames before a shifted character's key (default 0)\n"
@@ -156,6 +169,7 @@ static void usage()
 "  --trace-cpu FILE       PC of each instruction fetch\n"
 "  --trace-io FILE        each I/O write: frame,pc,port,data,MZ-800 DMD\n"
 "  --wav FILE             audio at 48 kHz, 16-bit mono (sound/tape bit + MZ-800 PSG, as SharpMZ.sv)\n"
+"  --wav-out FILE         the core's final audio output (sharpmz_top audio_l/r), 48 kHz 16-bit stereo\n"
 "  --trace-from N         start tracing at frame N; --trace-to N stops after frame N\n"
 "\n"
 "fb_hash is FNV-1a 32 over the RGB888 bytes of the active (unblanked) picture,\n"
@@ -219,6 +233,7 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--shift-lead") o.shift_lead = parse_num(next());
         else if (a == "--key-layout") o.key_sharp = next() != "pc";
         else if (a == "--tape-direct") o.tape_direct = true;
+        else if (a == "--tape-msgs") o.tape_msgs = true;
         else if (a == "--dump-frames") {
             std::string v = next();
             size_t c = v.find(':');
@@ -242,6 +257,11 @@ static bool parse_args(int argc, char **argv, Options &o)
         }
         else if (a == "--tape-image") o.tape_image = next();
         else if (a == "--fdd") o.fdd = next();
+        else if (a == "--fdd-frame") o.fdd_frame = parse_num(next());
+        else if (a == "--boot-reset") o.boot_reset = true;
+        else if (a == "--osd") o.osd.push_back(next());
+        else if (a == "--osd-list") o.osd_list = true;
+        else if (a == "--conf-str") o.conf_str_file = next();
         else if (a == "--qd") o.qd = next();
         else if (a == "--qd-readonly") o.qd_readonly = true;
         else if (a == "--printer") o.printer = next();
@@ -265,7 +285,9 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--tape-rewind") o.tape_rewinds.insert(parse_num(next()));
         else if (a == "--trace-cpu") o.trace_file = next();
         else if (a == "--wav") o.wav_file = next();
+        else if (a == "--wav-out") o.wav_out_file = next();
         else if (a == "--trace-io") o.io_file = next();
+        else if (a == "--trace-cxxx") o.trace_cxxx = true;
         else if (a == "--trace-from") o.trace_from = parse_num(next());
         else if (a == "--trace-to") o.trace_to = parse_num(next());
         else { fprintf(stderr, "unknown option %s (try --help)\n", a.c_str()); return false; }
@@ -282,6 +304,52 @@ static const ModelInfo MODELS[] = {
     {"mz700", 4, 2, 0}, {"mz800", 5, 2, 0}, {"mz80b", 6, 1, 0}, {"mz2000", 7, 1, 0},
     {"mz1500", 4, 2, 1},                                    // an MZ-700 plus the MZ-1500 flag (display3 bit 3)
 };
+
+// ---------------------------------------------------------------------------
+// OSD options: decoded from SharpMZ.sv's CONF_STR, so --osd NAME=VALUE sets the same status bits Main does.
+// ---------------------------------------------------------------------------
+struct OsdOption { std::string name; int lo, width; std::vector<std::string> values; };
+
+static std::string lower_trim(std::string s)
+{
+    size_t a = s.find_first_not_of(" \t"), b = s.find_last_not_of(" \t");
+    s = a == std::string::npos ? "" : s.substr(a, b - a + 1);
+    for (auto &c : s) c = (char)tolower((unsigned char)c);
+    return s;
+}
+
+// Entries like "P2O[23:21],Fast Tape,Fastest,Off,2x,4x,8x,16x;" or "O[122:121],Aspect ratio,...".
+static std::vector<OsdOption> read_osd_options(const std::string &path)
+{
+    std::vector<OsdOption> out;
+    std::ifstream f(path);
+    std::string line;
+    while (std::getline(f, line)) {
+        size_t q = line.find('"');
+        if (q == std::string::npos) continue;
+        size_t e = line.find(';', q);
+        if (e == std::string::npos) continue;
+        std::string ent = line.substr(q + 1, e - q - 1);
+        size_t i = 0;
+        if (ent.size() > 1 && ent[0] == 'P' && isdigit((unsigned char)ent[1])) i = 2;
+        if (ent.compare(i, 2, "O[") != 0) continue;
+        size_t rb = ent.find(']', i);
+        std::string range = ent.substr(i + 2, rb - i - 2);
+        int hi, lo;
+        size_t colon = range.find(':');
+        if (colon == std::string::npos) hi = lo = atoi(range.c_str());
+        else { hi = atoi(range.substr(0, colon).c_str()); lo = atoi(range.substr(colon + 1).c_str()); }
+        std::vector<std::string> parts;
+        std::string rest = ent.substr(rb + 2), cur;
+        for (char c : rest) { if (c == ',') { parts.push_back(cur); cur.clear(); } else cur += c; }
+        parts.push_back(cur);
+        if (parts.empty()) continue;
+        OsdOption o{parts[0], lo, hi - lo + 1, {}};
+        for (size_t k = 1; k < parts.size(); k++) o.values.push_back(parts[k]);
+        out.push_back(o);
+    }
+    return out;
+}
 
 // SharpMZ.sv mz_fast_tape(): menu step -> register value.
 static uint8_t fast_tape_code(int step)
@@ -329,10 +397,13 @@ private:
 
     // Audio capture (--wav): 48 kHz samples of AUDIO_L as SharpMZ.sv mixes it.
     FILE    *fwav = nullptr;
+    FILE    *fwav2 = nullptr;                // --wav-out
+    uint64_t wav2_acc = 0, wav2_samples = 0;
     FILE    *fio = nullptr;
     bool     prev_io_wr = false;
     uint64_t wav_acc = 0, wav_samples = 0;
     void wav_header();
+    void wav_out_header();
 
     // Tape image slot, emulating Main_MiSTer's side of hps_io's sd_* handshake.
     // Image slots: 0 = tape (S0), 1 = floppy drive A (S1). The buffer bus is shared.
@@ -349,6 +420,10 @@ private:
     std::string qd_path;                         // the Quick Disk image mounted now (opt.qd, then --qd-swap)
     int      sd_slot = 0;
     void mount_fdd();
+    uint32_t status_bits[4] = {0, 0, 0, 0};      // the OSD status word, as Main sets it
+    void set_status(int lo, int width, uint32_t v);
+    void apply_status();
+    bool apply_osd(const std::string &assignments);
     enum { SD_IDLE, SD_READ, SD_READ_END, SD_WRITE } sd_state = SD_IDLE;
     int      sd_idx = 0;
     uint32_t sd_cur_lba = 0;
@@ -546,6 +621,45 @@ void Sim::clock()
         if (w && !prev_io_wr)
             fprintf(fio, "%u,%04X,%02X,%02X,%X\n", frame, top->cpu_pc, top->dbg_io_port, top->dbg_io_data, top->dbg_m8_dmd);
         prev_io_wr = w;
+        // The MZ-80K/80A video registers in the E page: E010-E012 (PCG) writes, E014/E015 (invert) and E200-E2FF
+        // (MZ-80A scroll) reads, as "mem" lines (frame,pc,mem,R/W,address,data).
+        static bool prev_mr = false, prev_mw = false;
+        bool mr = top->dbg_memrd, mw = top->dbg_memwr;
+        uint16_t a = top->dbg_addr;
+        if (mr && !prev_mr && ((a & 0xFF00) == 0xE200 || a == 0xE014 || a == 0xE015))
+            fprintf(fio, "%u,%04X,mem,R,%04X\n", frame, top->cpu_pc, a);
+        if (mw && !prev_mw && (a & 0xF000) == 0xC000 && opt.trace_cxxx)   // --trace-cxxx: C000-CFFF writes, with the MZ-800 map
+            fprintf(fio, "%u,%04X,mem,W,%04X,%02X,map%d\n", frame, top->cpu_pc, a, top->dbg_wdata, top->dbg_m8map);
+        if (mw && !prev_mw && a >= 0xE010 && a <= 0xE012)
+            fprintf(fio, "%u,%04X,mem,W,%04X,%02X\n", frame, top->cpu_pc, a, top->dbg_wdata);
+        // The keyboard (8255 at E000-E003): row selects written to E000, key data read from E001, once the read's
+        // data is on the bus (a few clocks into the read).
+        static int kr = 0;
+        // (E000-E00F: the 8255, 8253 and E008, with any mirrors a program may use.)
+        static uint16_t ka = 0;
+        // I/O reads: "io,R,port,data" (the data once on the bus).
+        static bool prev_ir = false; static int ir = 0; static uint8_t ip = 0;
+        bool irq_rd = top->dbg_io_rd;
+        if (irq_rd && !prev_ir) { ir = 8; ip = top->dbg_io_port; }
+        if (ir && --ir == 0) {
+            if (ip >= 0xF4 && ip <= 0xF7)        // Quick Disk: also the CPU cycle, the head position and the FIFO count
+                fprintf(fio, "%u,%04X,io,R,%02X,%02X,%llu,%u,%u\n", frame, top->cpu_pc, ip, top->dbg_rdata,
+                        (unsigned long long)cpu_cycles, (unsigned)top->dbg_qdpos, (unsigned)top->dbg_qdfifo);
+            else
+                fprintf(fio, "%u,%04X,io,R,%02X,%02X\n", frame, top->cpu_pc, ip, top->dbg_rdata);
+        }
+        prev_ir = irq_rd;
+        static bool prev_ovr = false;                           // Quick Disk: when the SIO overrun flag is set
+        if (top->dbg_qdovr && !prev_ovr)
+            fprintf(fio, "%u,%04X,qd,OVERRUN,pos=%u,fifo=%u,wr3=%02X,cyc=%llu\n", frame, top->cpu_pc, (unsigned)top->dbg_qdpos,
+                    (unsigned)top->dbg_qdfifo, (unsigned)top->dbg_qdwr3, (unsigned long long)cpu_cycles);
+        prev_ovr = top->dbg_qdovr;
+        if (mw && !prev_mw && (a & 0xFFF0) == 0xE000)
+            fprintf(fio, "%u,%04X,mem,W,%04X,%02X\n", frame, top->cpu_pc, a, top->dbg_wdata);
+        if (mr && !prev_mr && (a & 0xFFF0) == 0xE000) { kr = 8; ka = a; }
+        if (kr && --kr == 0)
+            fprintf(fio, "%u,%04X,mem,R,%04X,%02X\n", frame, top->cpu_pc, ka, top->dbg_rdata);
+        prev_mr = mr; prev_mw = mw;
     }
 
     if (opt.verbose) {                       // MZ-800 border (sim.v: always on): frame size as hps_io video_calc measures it
@@ -576,12 +690,22 @@ void Sim::clock()
         }
     }
 
+    if (fwav2) {                             // 48 kHz stereo, signed (the core's output is unsigned around 0)
+        wav2_acc += 48000;
+        if (wav2_acc >= (uint64_t)CLK_HZ) {
+            wav2_acc -= (uint64_t)CLK_HZ;
+            int16_t lr[2] = {(int16_t)(top->AUDIO_OUT_L - 0x8000), (int16_t)(top->AUDIO_OUT_R - 0x8000)};
+            fwrite(lr, 2, 2, fwav2);
+            wav2_samples++;
+        }
+    }
+
     if (fwav) {
         wav_acc += 48000;
         if (wav_acc >= (uint64_t)CLK_HZ) {
             wav_acc -= (uint64_t)CLK_HZ;
             // As SharpMZ.sv: the beeper is one PSG channel's level on the MZ-800/1500, full range elsewhere.
-            int beep = ((top->cfg_model & 7) == 5 || (top->cfg_display3 & 8)) ? 0x1000 : 0x4000;
+            int beep = ((top->dbg_model & 7) == 5 || top->dbg_mz1500) ? 0x1000 : 0x4000;
             int v = (top->AUDIO_L ? beep : 0) + top->AUDIO_PSG - 0x4000;
             int16_t smp = (int16_t)v;
             fwrite(&smp, 2, 1, fwav);
@@ -695,6 +819,7 @@ void Sim::on_frame_end()
     if (!opt.mzf.empty() && opt.mzf_direct && frame == opt.mzf_direct_frame && frame != 0) load_mzf(true);
     if (!opt.mzf.empty() && !opt.mzf_direct && frame == opt.mzf_frame && frame != 0) load_mzf(false);
 
+    if (!opt.fdd.empty() && opt.fdd_frame != 0 && frame == opt.fdd_frame) mount_fdd();
     auto sw = opt.qd_swaps.find(frame);
     if (sw != opt.qd_swaps.end()) {
         if (qd) fclose(qd);
@@ -707,8 +832,10 @@ void Sim::on_frame_end()
     auto rl = opt.rom_loads.equal_range(frame);
     for (auto it = rl.first; it != rl.second; ++it) load_rom(it->second.first, it->second.second);
     if (opt.fast_tape_at.count(frame))
-        top->cfg_cmt = (uint8_t)((top->cfg_cmt & ~7) | fast_tape_code(opt.fast_tape_at.at(frame)));
-    if (opt.warm_resets.count(frame)) { top->warm_reset = 1; clock(); top->warm_reset = 0; }   // one clock, about what Main gives a T[0] (status bit set, then cleared)
+        { set_status(21, 3, (uint32_t)opt.fast_tape_at.at(frame)); apply_status(); }     // OSD Fast Tape (menu step)
+    if (opt.warm_resets.count(frame)) {          // OSD Reset: Main sets status bit 0 and clears it at once
+        set_status(0, 1, 1); apply_status(); clock(); set_status(0, 1, 0); apply_status();
+    }
 }
 
 void Sim::ioctl_write(uint32_t addr, uint8_t data)
@@ -723,27 +850,74 @@ void Sim::ioctl_write(uint32_t addr, uint8_t data)
     for (int i = 0; i < 10000 && top->ioctl_wait; i++) clock();   // tape data buffer (DDR3) busy
 }
 
+void Sim::set_status(int lo, int width, uint32_t v)
+{
+    for (int b = 0; b < width; b++) {
+        int bit = lo + b;
+        if ((v >> b) & 1) status_bits[bit / 32] |= 1u << (bit % 32);
+        else status_bits[bit / 32] &= ~(1u << (bit % 32));
+    }
+}
+
+void Sim::apply_status()
+{
+    for (int i = 0; i < 4; i++) top->status[i] = status_bits[i];
+}
+
+// "Name=Value, Name=Value": names and values as the OSD shows them (case-insensitive), or a value's index.
+bool Sim::apply_osd(const std::string &assignments)
+{
+    static std::vector<OsdOption> table;
+    if (table.empty()) table = read_osd_options(opt.conf_str_file);
+    if (table.empty()) { fprintf(stderr, "--osd: no OSD options found in %s\n", opt.conf_str_file.c_str()); return false; }
+    std::string item;
+    std::vector<std::string> items;
+    for (char c : assignments + ",") { if (c == ',') { if (!lower_trim(item).empty()) items.push_back(item); item.clear(); } else item += c; }
+    for (auto &it : items) {
+        size_t eq = it.find('=');
+        if (eq == std::string::npos) { fprintf(stderr, "--osd: '%s' is not NAME=VALUE\n", it.c_str()); return false; }
+        std::string name = lower_trim(it.substr(0, eq)), val = lower_trim(it.substr(eq + 1));
+        const OsdOption *o = nullptr;
+        for (auto &x : table) if (lower_trim(x.name) == name) o = &x;
+        if (!o) { fprintf(stderr, "--osd: no option '%s' (see --osd-list)\n", it.substr(0, eq).c_str()); return false; }
+        int v = -1;
+        for (size_t k = 0; k < o->values.size(); k++) if (lower_trim(o->values[k]) == val) v = (int)k;
+        if (v < 0 && !val.empty() && val.find_first_not_of("0123456789") == std::string::npos) v = atoi(val.c_str());
+        if (v < 0) { fprintf(stderr, "--osd: '%s' has no value '%s'\n", o->name.c_str(), it.substr(eq + 1).c_str()); return false; }
+        set_status(o->lo, o->width, (uint32_t)v);
+        if (!opt.quiet) fprintf(stderr, "[sim] OSD %s = %s (status[%d+%d] = %d)\n", o->name.c_str(),
+                                v < (int)o->values.size() ? o->values[v].c_str() : "?", o->lo, o->width, v);
+    }
+    return true;
+}
+
+// The OSD status word for the sim's options, then --osd on top. Where the sim's defaults differ from the core's
+// (Fast Tape Off, Keyboard Layout Sharp, Load Direct Start: Reset Only, MZ-800 Mode: MZ-800, Tape Messages Off),
+// that is so the regression's expected results stay as they were made.
 void Sim::write_config()
 {
-    const ModelInfo *m = nullptr;
-    for (auto &x : MODELS) if (opt.model == x.name) m = &x;
-    top->cfg_model    = m->code;
-    top->cfg_display  = m->display;                            // video/graphics/VRAM wait/PCG bits off
-    top->cfg_display2 = opt.vmode == "native" ? 3 : 1;         // SharpMZ.sv: 2'b11 native, 2'b01 640x480@60
-    top->cfg_display3 = (opt.mz800_700 ? 0 : 4) | (m->mz1500 ? 8 : 0);   // bit 2: MZ-800 mode switch, bit 3: MZ-1500
-    top->fdc_mode     = opt.fdc_mode;
-    top->cfg_cpu      = (uint8_t)(opt.turbo & 7);
-    top->cfg_audio    = 0;
-    top->ramdisk_en   = opt.ramdisk;
-    top->key_sharp    = opt.key_sharp;
-    top->tape_direct  = opt.tape_direct;
-    top->fdd_b_unit2  = opt.fdd_b_hd;
-    top->direct_start_en = opt.direct_start;
-    top->prn_en       = opt.printer.empty() ? 0 : 1;
-    top->prn_baud     = opt.printer_baud;
-    top->prn_ascii    = opt.printer_ascii;
-    top->joy0         = opt.joy0;
-    top->cfg_cmt      = (uint8_t)((3 << 3) | fast_tape_code(opt.fast_tape)); // buttons auto, fast tape
+    static const struct { const char *name; int menu; } MODEL_MENU[] = {
+        {"mz80a", 0}, {"mz80k", 1}, {"mz80c", 2}, {"mz1200", 3}, {"mz700", 4}, {"mz80b", 5}, {"mz2000", 6}, {"mz800", 7},
+        {"mz1500", 8}};
+    for (auto &m : MODEL_MENU) if (opt.model == m.name) set_status(35, 4, (uint32_t)m.menu);
+    set_status(4, 3, (uint32_t)(opt.turbo & 7));             // CPU Speed
+    set_status(30, 1, opt.boot_reset);                       // MZ-80B/2000 Boot Reset
+    set_status(32, 1, opt.mz800_700 ? 0 : 1);               // MZ-800 Mode
+    set_status(51, 1, opt.key_sharp);                        // Keyboard Layout: Sharp
+    set_status(21, 3, (uint32_t)opt.fast_tape);              // Fast Tape (menu step)
+    set_status(49, 1, opt.direct_start ? 0 : 1);             // Load Direct Start: Program / Reset Only
+    set_status(52, 1, opt.tape_direct);                      // Tape Image Start: Direct
+    set_status(55, 1, opt.tape_msgs ? 0 : 1);                // Tape Messages: On / Off
+    set_status(33, 2, (uint32_t)opt.fdc_mode);              // Floppy Interface
+    set_status(40, 1, opt.ramdisk);                          // MZ-800 RAM Disk
+    set_status(48, 1, opt.fdd_b_hd);                         // Drive B Unit: 3rd
+    set_status(47, 1, opt.printer.empty() ? 0 : 1);          // Printer: UART
+    set_status(50, 1, opt.printer_ascii);                    // Printer Charset: ASCII
+    for (auto &a : opt.osd) if (!apply_osd(a)) { exit_code = 2; return; }
+    apply_status();
+    top->prn_baud = opt.printer_baud;
+    top->joy0     = opt.joy0;
+    top->buttons  = 0;
 }
 
 // OSD ROM and RAM > Load System ROM: the file goes to download address 0x000000 + offset (SharpMZ.sv passes the
@@ -754,13 +928,16 @@ void Sim::load_rom(const std::string &path, uint32_t addr)
     std::vector<uint8_t> d((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     if (d.empty()) { fprintf(stderr, "cannot read ROM '%s'\n", path.c_str()); exit_code = 2; return; }
     if (!opt.quiet) fprintf(stderr, "[sim] loading ROM '%s' (%zu bytes) at %06X, frame %u\n", path.c_str(), d.size(), addr, frame);
+    top->ioctl_index = 3;                                    // F3: Load System ROM (sharpmz_top holds the machine, then resets it)
     top->ioctl_download = 1;
+    for (int i = 0; i < 8; i++) clock();                     // as Main: the file index is latched before the first byte
     for (size_t i = 0; i < d.size(); i++) ioctl_write(addr + (uint32_t)i, d[i]);
     top->ioctl_download = 0;
     for (int i = 0; i < 64; i++) clock();
 }
 
-// Same address mapping as SharpMZ.sv (mz_ioctl_addr_map).
+// Load Tape to CMT (F1) or Load Direct to RAM (F2), sent as Main does; sharpmz_top maps the addresses and does the
+// direct load's reset.
 bool Sim::load_mzf(bool direct)
 {
     std::ifstream f(opt.mzf, std::ios::binary);
@@ -771,23 +948,15 @@ bool Sim::load_mzf(bool direct)
         fprintf(stderr, "[sim] %s MZF '%s' size %04X load %04X exec %04X at frame %u\n",
                 direct ? "direct-loading" : "loading tape", opt.mzf.c_str(), size, load, exec, frame);
 
+    top->ioctl_index = direct ? 2 : 1;                       // F2 Load Direct to RAM / F1 Load Tape to CMT, as Main sends them
     top->ioctl_download = 1;
-    top->ioctl_direct = direct;
-    if (direct) top->warm_reset = 1;
+    for (int i = 0; i < 8; i++) clock();                     // as Main: the file index is latched before the first byte
     for (size_t i = 0; i < d.size(); i++) {
-        uint32_t a;
-        if (direct) {
-            if (i >= 128 && size && i >= 128u + size) break;
-            a = i < 128 ? 0x100000 + 0x10F0 + i : 0x100000 + load + (i - 128);
-        } else {
-            a = i < 128 ? 0x400000 + i : 0x410000 + (i - 128);
-        }
-        ioctl_write(a, d[i]);
+        if (direct && i >= 128 && size && i >= 128u + size) break;
+        ioctl_write((uint32_t)i, d[i]);                      // the file offset: sharpmz_top maps it (10F0, load address, CMT)
     }
     top->ioctl_download = 0;
-    top->ioctl_direct = 0;
     for (int i = 0; i < 64; i++) clock();
-    top->warm_reset = 0;
     return true;
 }
 
@@ -843,6 +1012,18 @@ void Sim::wav_header()
     u32(16); u16(1); u16(1); u32(48000); u32(96000); u16(2); u16(16);
     fwrite("data", 1, 4, fwav); u32(data);
     fseek(fwav, 0, SEEK_END);
+}
+
+void Sim::wav_out_header()
+{
+    uint32_t data = (uint32_t)(wav2_samples * 4);
+    auto u32 = [&](uint32_t v) { fwrite(&v, 4, 1, fwav2); };
+    auto u16 = [&](uint16_t v) { fwrite(&v, 2, 1, fwav2); };
+    fseek(fwav2, 0, SEEK_SET);
+    fwrite("RIFF", 1, 4, fwav2); u32(36 + data); fwrite("WAVEfmt ", 1, 8, fwav2);
+    u32(16); u16(1); u16(2); u32(48000); u32(192000); u16(4); u16(16);
+    fwrite("data", 1, 4, fwav2); u32(data);
+    fseek(fwav2, 0, SEEK_END);
 }
 
 void Sim::write_png(uint32_t f)
@@ -911,16 +1092,28 @@ int Sim::run()
         if (!(fwav = fopen(opt.wav_file.c_str(), "wb"))) { fprintf(stderr, "cannot write %s\n", opt.wav_file.c_str()); return 2; }
         wav_header();
     }
+    if (!opt.wav_out_file.empty()) {
+        if (!(fwav2 = fopen(opt.wav_out_file.c_str(), "wb"))) { fprintf(stderr, "cannot write %s\n", opt.wav_out_file.c_str()); return 2; }
+        wav_out_header();
+    }
     if (!opt.trace_file.empty() && !(ftrace = fopen(opt.trace_file.c_str(), "w"))) {
         fprintf(stderr, "cannot write %s\n", opt.trace_file.c_str()); return 2;
     }
     if (ftrace) fprintf(ftrace, "frame,cpu_cycle,pc\n");
 
+    if (opt.osd_list) {
+        for (auto &o : read_osd_options(opt.conf_str_file)) {
+            printf("%-26s status[%d%s]:", o.name.c_str(), o.lo, o.width > 1 ? ("+" + std::to_string(o.width)).c_str() : "");
+            for (size_t k = 0; k < o.values.size(); k++) printf(" %zu=%s", k, o.values[k].c_str());
+            printf("\n");
+        }
+        return 0;
+    }
     // Power-on: hold reset, then configure the machine the way SharpMZ.sv does.
     top->reset = 1;
-    top->warm_reset = 0;
     top->ps2_key = 0;
     write_config();
+    if (exit_code) return exit_code;
     for (int i = 0; i < 256; i++) clock();
     top->reset = 0;
     for (int i = 0; i < 128; i++) clock();
@@ -934,7 +1127,7 @@ int Sim::run()
     if (!opt.mzf.empty() && (opt.mzf_direct ? opt.mzf_direct_frame == 0 : opt.mzf_frame == 0))
         if (!load_mzf(opt.mzf_direct)) return exit_code;
     if (!opt.tape_image.empty()) { mount_tape(); if (exit_code) return exit_code; }
-    if (!opt.fdd.empty()) { mount_fdd(); if (exit_code) return exit_code; }
+    if (!opt.fdd.empty() && opt.fdd_frame == 0) { mount_fdd(); if (exit_code) return exit_code; }
     if (!opt.fdd_b.empty()) { mount_fdd2(); if (exit_code) return exit_code; }
     if (!opt.qd.empty()) { mount_qd(); if (exit_code) return exit_code; }
     if (!opt.printer.empty()) {
@@ -960,6 +1153,7 @@ int Sim::run()
     dump_memory();
     if (flog) fclose(flog);
     if (fwav) { wav_header(); fclose(fwav); }
+    if (fwav2) { wav_out_header(); fclose(fwav2); }
     if (fio) fclose(fio);
     if (ftrace) fclose(ftrace);
     return exit_code;

@@ -19,10 +19,21 @@
 #                 ../software/idealine/mz-80b/rb_DSK/DSK; frame hash. Skipped when the images aren't there.
 #   ipl_mz2000    MZ-2000: the MZ-2200 IPL reaches "IPL is looking for a program" (frame hash at 300)
 #   tape_direct   MZ-700, OSD Tape Image Start: Direct: BASIC starts from the tape image by itself, LOAD, LIST
+#   fdd_mz80a     MZ-80A: F, Return: the floppy interface ROM boots SA-6510 Disk BASIC from drive 1 (idealine.info image)
 #   tape_mz80b    MZ-80B: the IPL loads SB-5520 BASIC from a tape image (../software/mz80b) to "Ready"; frame hash.
 #   tape_mz2000   MZ-2000: the MZ-2200 IPL loads Gang Man (../software/mz2200) to its title; frame hash.
 #                 Both skipped when the tapes aren't there, and with QUICK=1 (the MZ-80B model is slow to simulate).
 #   ipl_mz1500    MZ-1500: the 9Z-502M IPL menu ("Make ready QD"); frame hash at 150.
+#   psg_mz1500    MZ-1500: tests/mz1500/psgstereo.mzf, 440 Hz on the left PSG (F2), 880 Hz on the right (F3); the core's
+#                 stereo output (--wav-out): each channel's frequency and peak-to-peak level (tests/wav_stereo.py)
+#   qd_tape       a tape mounted as the Quick Disk gives the stream tools/mzf2qdf.py writes (tests/qd_tape, its own
+#                 testbench of rtl/mz_qdisk.sv)
+#   boot_mz700j   MZ-700, OSD Region: Japan: the 1Z-009B monitor (and the Japanese CG, 60 Hz)
+#   pio_mz1500    MZ-1500: tests/mz1500/pioint.mzf, Z80 PIO interrupts on PA4 from the 8253's OUT0 (counter 0 mode 0,
+#                 reloaded by the handler, as Batten Tanuki's keyboard): the interrupt count at frame 300
+#   pcg700_mz700  MZ-700: tests/mz700/pcg700.mzf programs code EF in both sets of a HAL PCG-700 (E010-E012) and
+#                 switches its display on; frame hash (the two EFs show the two patterns, the cursor the first)
+#   e2scroll_mz700 MZ-700: tests/mz700/e2scroll.mzf reads E250 in a loop; the MZ-80A scroll must not act; hash
 #   fdd_hd        MZ-800: 1.44 MB image on unit 2 (--fdd-b-hd); a sector 1.45 MB into the image written and read
 #                 back by tests/fdd/fdhd.mzf (status bytes, count, data). Skipped without ../software/dsk/_Vzor144.dsk.
 #   prn_ascii_mz700  tests/printer/prnsharp.mzf prints lowercase in Sharp codes with bare CRs; with --printer-ascii
@@ -100,6 +111,25 @@ pids+=($!); names+=("ipl_mz2000")
 ( $BIN --model mz1500 --stop-at-frame 151 --frame-log "$OUT/ipl_mz1500.csv" --quiet > /dev/null 2> "$OUT/ipl_mz1500.log"
   awk -F, '$1==150 {print $2}' "$OUT/ipl_mz1500.csv" > "$OUT/ipl_mz1500.txt" ) &
 pids+=($!); names+=("ipl_mz1500")
+( $BIN --model mz1500 --mzf tests/mz1500/psgstereo.mzf --mzf-direct --mzf-direct-frame 20 --direct-start --stop-at-frame 330 \
+      --wav-out "$OUT/psg_mz1500.wav" --quiet > /dev/null 2> "$OUT/psg_mz1500.log"
+  python3 tests/wav_stereo.py "$OUT/psg_mz1500.wav" 3.5 1.0 > "$OUT/psg_mz1500.txt" ) &
+pids+=($!); names+=("psg_mz1500")
+( tests/qd_tape/run.sh tests/mz700/pcg700.mzf > "$OUT/qd_tape.log" 2>&1 && \
+  tests/qd_tape/run.sh "tests/mz1500/psgstereo.mzf" >> "$OUT/qd_tape.log" 2>&1; \
+  grep -c "^PASS" "$OUT/qd_tape.log" > "$OUT/qd_tape.txt" ) &
+pids+=($!); names+=("qd_tape")
+( $BIN --model mz700 --osd "Region=Japan" --stop-at-frame 150 --ascii-end --quiet > "$OUT/boot_mz700j.txt" 2> "$OUT/boot_mz700j.log" ) &
+pids+=($!); names+=("boot_mz700j")
+( $BIN --model mz1500 --mzf tests/mz1500/pioint.mzf --mzf-direct --mzf-direct-frame 20 --direct-start --stop-at-frame 300 \
+      --dump-mem B800:2:"$OUT/pio_mz1500.bin" --quiet > /dev/null 2> "$OUT/pio_mz1500.log"; xxd -p "$OUT/pio_mz1500.bin" > "$OUT/pio_mz1500.txt" ) &
+pids+=($!); names+=("pio_mz1500")
+for t in pcg700 e2scroll; do
+    ( $BIN --model mz700 --mzf tests/mz700/$t.mzf --mzf-direct --mzf-direct-frame 30 --direct-start --stop-at-frame 181 \
+          --frame-log "$OUT/${t}_mz700.csv" --quiet > /dev/null 2> "$OUT/${t}_mz700.log"
+      awk -F, '$1==180 {print $2}' "$OUT/${t}_mz700.csv" > "$OUT/${t}_mz700.txt" ) &
+    pids+=($!); names+=("${t}_mz700")
+done
 # Printer: tests/printer/prntest.mzf prints two lines through the Sharp handshake (MZ-700 ports FE/FF, MZ-800 PIO);
 # the sim decodes the UART line (9600 8N1) into the .bin, compared as hex with tests/expected/prn_*.txt.
 ( $BIN --model mz700 --mzf tests/printer/prntest.mzf --mzf-direct --mzf-direct-frame 20 --type '100:J2000\n' \
@@ -215,6 +245,15 @@ if [ -z "${QUICK:-}" ]; then
         fi
     done
 fi
+# MZ-80A floppy: F at the monitor runs the interface ROM, Return boots drive 1: SA-6510 Disk BASIC (the interface's
+# CPU WAIT at F3FE paces the ROM's INI loop).
+SA6510=../software/idealine/mz-80a/SA-6510bootdisk/SA-6510.DSK
+if [ -f "$SA6510" ]; then
+    cp "$SA6510" "$OUT/fdd_mz80a.dsk"
+    ( $BIN --model mz80a --fdd "$OUT/fdd_mz80a.dsk" --fdd-readonly --type '150:F\n' --type '300:\n' --stop-at-frame 700 \
+          --ascii-end --quiet > "$OUT/fdd_mz80a.txt" 2> "$OUT/fdd_mz80a.log" ) &
+    pids+=($!); names+=("fdd_mz80a")
+fi
 RB=../software/idealine/mz-80b/rb_DSK/DSK
 for t in "fdd_mz80b DISK23 900" "fdd_mz80b_cpm DISK01 1200"; do
     set -- $t
@@ -256,6 +295,14 @@ for n in "${names[@]}"; do
                 echo "PASS $n"
             else
                 echo "FAIL $n"; head -5 "$OUT/tape_image.txt"; fail=1
+            fi ;;
+        *)                                   # everything else: the output against tests/expected/<name>.txt
+            if [ ! -f "tests/expected/$n.txt" ]; then
+                echo "FAIL $n (no tests/expected/$n.txt)"; fail=1
+            elif diff -q "tests/expected/$n.txt" "$OUT/$n.txt" > /dev/null; then
+                echo "PASS $n"
+            else
+                echo "FAIL $n"; diff "tests/expected/$n.txt" "$OUT/$n.txt" | head -5; fail=1
             fi ;;
     esac
 done

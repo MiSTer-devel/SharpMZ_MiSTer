@@ -111,6 +111,7 @@ entity VideoController is
 
         -- MZ-1500 PCG (SharpMZ MiSTer): the planes live in video_vc; the character renderer composites them.
         M15_PCGON                : in    std_logic := '0';                               -- MZ-1500 with port F0 bit 0 set.
+        PCG700_EN                : in    std_logic := '0';                               -- MZ-700: HAL PCG-700 at E010-E012 (display switched by E012 bit 3).
         M15_PRIO                 : in    std_logic := '0';                               -- Port F0 bit 1: 0 = BPF (characters over PCG), 1 = BFP.
         M15_PAL                  : in    std_logic_vector(23 downto 0) := (others => '0'); -- Port F1: colour of PCG index i in bits 3i+2..3i (b0 B, b1 R, b2 G).
         BCOL_O                   : out   std_logic_vector(3 downto 0);                   -- MZ-800 border colour (BCOL: I, G, R, B), for the border outside.
@@ -972,6 +973,8 @@ architecture rtl of VideoController is
     signal CGRAM_WEN_BYTE        :     std_logic;                            -- CGRAM Write byte enable signal.
     signal CGRAM_WEN_HWORD       :     std_logic;                            -- CGRAM Write 16bit half word enable signal.
     signal CGRAM_SEL             :     std_logic;
+    signal PCG700_OFF            :     std_logic := '1';                     -- E012 bit 3 (software control, active low): 0 = PCG display on.
+    signal PCG700_UPPER          :     std_logic := '0';                     -- The CG address being read is an upper-128 character (PCG RAM).
     --
     -- Clocks
     --
@@ -3691,6 +3694,7 @@ begin
                 PALETTE_REG           <= (others => '0');
                 PALETTE_PARAM_SEL     <= (others => '0');
                 CGRAM_WEn             <= '1';
+                PCG700_OFF            <= '1';                             -- Off until software switches it on.
                 GPU_PARAMS            <= (others => '0');
                 GPU_COMMAND           <= (others => '0');
                 CONFIG_LAST           <= (others => '0');                 -- Apply the configuration once reset is released.
@@ -3722,13 +3726,15 @@ begin
 
                     -- MZ80A has hardware inversion which is basically the inversion of the video out stream. A signal is set when inversion is required by a read to E014 and reset
                     -- with a read to E015.
-                    if CS_INVERTn='0' and (MODE_VIDEO_MZ80A = '1' or MODE_VIDEO_MZ700 = '1') then
+                    -- MZ-80A only: the MZ-700 has nothing at E014/E015 or E200-E2FF (Metro-Cross reads E200-E2FF in play,
+                    -- which scrolled its screen a third of the way across).
+                    if CS_INVERTn='0' and MODE_VIDEO_MZ80A = '1' then
                         DISPLAY_INVERT    <= Z80_MA(0);
                     end if;
     
                     -- MZ80A has hardware scrolling which is basically the addition, in blocks of 8, to the video address line. A read from E200 will set the addition to 0,
                     -- a read from each location, E201 - E2FE will add X x 8 bytes to the address, a read from E2FF will scroll fully to the end of the VRAM buffer.
-                    if CS_SCROLLn='0' and (MODE_VIDEO_MZ80A = '1' or MODE_VIDEO_MZ700 = '1') then
+                    if CS_SCROLLn='0' and MODE_VIDEO_MZ80A = '1' then
                         if MODE_VIDEO_MONO80 = '1' or MODE_VIDEO_COLOUR80 = '1' then
                             OFFSET_ADDR   <= (others => '0');
                         else
@@ -4263,7 +4269,9 @@ begin
 
                         -- Set the PCG Control register.
                         if VIDEO_ADDRi(1 downto 0) = "10"  then
-                            CGRAM_ADDR(11 downto 8)<= (VIDEO_DATA_INi(2) and MODE_VIDEO_MZ80A) & '1' & VIDEO_DATA_INi(1 downto 0);
+                            -- Bit 2 selects the character set (set 2 = attribute bit 7), on the MZ-700 as on the MZ-80A.
+                            CGRAM_ADDR(11 downto 8)<= (VIDEO_DATA_INi(2) and (MODE_VIDEO_MZ80A or PCG700_EN)) & '1' & VIDEO_DATA_INi(1 downto 0);
+                            PCG700_OFF            <= VIDEO_DATA_INi(3);
                             CGRAM_WEn             <= not VIDEO_DATA_INi(4);
                             CGRAM_SEL             <= VIDEO_DATA_INi(5);
                         end if;
@@ -4945,7 +4953,10 @@ begin
     --
     -- Font select
     --
-    CGROM_DATA            <= CGROM_BIT_DO                                    when PCG_RAM_SEL ='0'
+    -- HAL PCG-700 (idealine pcg700_05): with E012 bit 3 low the upper 128 characters of each set come from the PCG RAM.
+    CGROM_DATA            <= CGRAM_BIT_DO                                    when PCG700_EN = '1' and PCG700_OFF = '0' and PCG700_UPPER = '1'
+                             else
+                             CGROM_BIT_DO                                    when PCG_RAM_SEL ='0'
                              else
                              CGRAM_BIT_DO                                    when PCG_RAM_SEL ='0'        and CGRAM_SEL = '1'
                              else
@@ -4955,6 +4966,8 @@ begin
                              else (others => '1');
     CG_ADDR               <= CGRAM_ADDR(11 downto 0)                         when CGRAM_WEn = '0'
                              else RENDR_CGROM_ADDR;
+    -- The CG memories answer a clock after the address; PCG700_UPPER follows the address the same way.
+    process(SYS_CLK) begin if rising_edge(SYS_CLK) then PCG700_UPPER <= CG_ADDR(10); end if; end process;
     CGROM_WEN             <= '1'                                             when VIDEO_WRni = '0'        and ((CS_DXXXn = '0' and CS_VIDEO_LEGACYn = '0' and CGROM_PAGE = '1' and MODE_VIDEO_MZ80B = '0' and MODE_VIDEO_MZ2000 = '0' and MODE_VIDEO_MZ2200 = '0' and FBRAM_PAGE_ENABLE = '0') or (CS_VIDEO_CGROM_DIRECTn = '0'))
                              else
                              -- MZ-800 CGRAM mode.

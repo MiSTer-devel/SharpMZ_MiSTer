@@ -17,6 +17,9 @@ usage: mister_test.py [--host mister.local] [--rbf output_files/SharpMZ.rbf] [--
 """
 import argparse, datetime, hashlib, json, os, shutil, socket, subprocess, sys, time, urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sharpmz_osd import osd                   # OSD options by name, from SharpMZ.sv's CONF_STR
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SW = os.path.join(ROOT, 'software')
 GAMES800 = os.path.join(SW, 'MZ-800-full/MZ-800/MZ-800 Software/COM/MZF/Games/800')
@@ -32,18 +35,22 @@ CFG_VER = '_v5'           # CONF_STR "v,5"
 MODEL = {'MZ80A': 0, 'MZ80K': 1, 'MZ80C': 2, 'MZ1200': 3, 'MZ700': 4, 'MZ80B': 5, 'MZ2000': 6, 'MZ800': 7, 'MZ1500': 8}
 
 
+# The tests' baseline, where it differs from the core's defaults: Keyboard Layout Sharp (KEYS below types by position),
+# Fast Tape Off (the waits were made at real speed), Tape Messages Off (the overlay would change screenshots).
+BASELINE = 'Keyboard Layout=Sharp, Fast Tape=Off, Tape Messages=Off'
+
+
 def status_bytes(model, opts=()):
-    """16-byte CFG: status bit n is byte n/8, bit n%8. opts: (low_bit, width, value)."""
-    st = MODEL[model] << 35 | 1 << 51 | 1 << 21  # Keyboard Layout: Sharp (KEYS below types by position); Fast Tape: Off
-                                                 # (the core's default is now Fastest; the tests' waits were made at real speed)
-    for lo, width, val in opts:
+    """16-byte CFG: status bit n is byte n/8, bit n%8. opts: (low_bit, width, value) from osd('Name=Value, ...')."""
+    st = 0
+    for lo, width, val in osd(f'Model={MODEL[model]}, ' + BASELINE) + list(opts):
         st = st & ~(((1 << width) - 1) << lo) | (val & ((1 << width) - 1)) << lo
     return st.to_bytes(16, 'little')
 
 
 FAST_TAPE = lambda step: (21, 3, step)     # OSD Fast Tape: 0 Fastest, 1 Off, 2 2x .. 5 16x, 6 Fastest (was 32x)
-PC_KEYS = (51, 1, 0)                       # OSD Keyboard Layout: PC (the tests default to Sharp)
-MZ800_MODE = (32, 1, 1)                    # rear switch in the MZ-800 position
+PC_KEYS = osd('Keyboard Layout=PC')[0]      # (the tests default to Sharp)
+MZ800_MODE = osd('MZ-800 Mode=MZ-800')[0]   # rear switch in the MZ-800 position
 
 # A test: name, model, OSD options, files to mount [(kind, index, local source)], reset after
 # mounting, then steps: ('wait', s) / ('type', text) / ('shot', label).
@@ -59,7 +66,7 @@ test('T03', 'MZ700', 'MZ-700 boots to the 1Z-013A monitor', steps=[('wait', 4), 
 test('T04', 'MZ800', 'MZ-800 IPL menu', steps=[('wait', 4), ('shot', 'boot')])
 test('T05', 'MZ80B', 'MZ-80B IPL (no disk: asks for the tape)', steps=[('wait', 6), ('shot', 'boot')])
 test('T06', 'MZ2000', 'MZ-2000 IPL: "IPL is looking for a program"', steps=[('wait', 6), ('shot', 'boot')])
-test('T07', 'MZ700', 'MZ-700 tape: L loads ramtest from the CMT', files=[('f', 1, f'{MZF}/ramtest.mzf')],
+test('T07', 'MZ700', 'MZ-700 tape: L loads ramtest from the tape image', files=[('s', 0, f'{MZF}/ramtest.mzf')],
      steps=[('wait', 2), ('type', 'L\n'), ('wait', 20), ('shot', 'loaded')])
 test('T08', 'MZ700', 'MZ-700 floppy: J F000 boots a disk (MZ-1E05 ROM)', files=[('s', 1, 'gen:fd700')], reset=True,
      steps=[('wait', 3), ('type', 'JF000\n'), ('wait', 12), ('shot', 'booted')])
@@ -181,6 +188,11 @@ for n, (title, fa, fb, key) in enumerate([
          files=[('s', 3, f'qd:{M15}/{fa}')], late=[] if fb == '-' else [('s', 3, f'qd:{M15}/{fb}', 35)], reset=True,
          steps=[('wait', 4), ('type', 'Q'), ('wait', 40), ('type', key), ('wait', 30), ('shot', 'a'), ('type', key), ('wait', 20),
                 ('shot', 'b')])
+    if n < 5:                         # the same tapes mounted as the Quick Disk directly (the core shows them as that disk)
+        test(f'N{n + 1:02d}', 'MZ1500', f'MZ-1500 tapes mounted as the Quick Disk: {title}',
+             files=[('s', 3, f'{M15}/{fa}')], late=[] if fb == '-' else [('s', 3, f'{M15}/{fb}', 35)], reset=True,
+             steps=[('wait', 4), ('type', 'Q'), ('wait', 40), ('type', key), ('wait', 30), ('shot', 'a'), ('type', key),
+                    ('wait', 20), ('shot', 'b')])
 
 # MZ-800 tapes whose header carries a loader (exec 1108, in the MZF comment area loaded at 10F0): it relocates
 # itself and reads the body with the ROM's tape routine.
@@ -210,7 +222,7 @@ for n, (title, f) in enumerate([
 # OSD Floppy CRC Errors: DISK37 with Report (the IPL says "Loading error"), DISK38 with the default Ignore (boots).
 for n, (d, rep) in enumerate([('DISK37.DSK', 1), ('DISK38.DSK', 0)]):
     test(f'T{n + 27:02d}', 'MZ80B', f'MZ-80B floppy with bad sectors: {d}, CRC errors {"reported" if rep else "ignored"}',
-         files=[('s', 1, f'{RB}/{d}')], opts=[(42, 1, rep)], reset=True,
+         files=[('s', 1, f'{RB}/{d}')], opts=[(*osd('Floppy CRC Errors=Ignore')[0][:2], rep)], reset=True,
          steps=[('wait', 25), ('shot', 'a'), ('wait', 20), ('shot', 'b'), ('wait', 60), ('shot', 'c')])
 
 # Floppy write: CP/M 4.1 saves a file (SAVE 1 TEST.COM) on a copy of its system disk; DIR shows it, and the image
@@ -228,14 +240,35 @@ test('K09', 'MZ2000', 'MZ-2000 BASIC LOAD "EXPLORER" finds the third program on 
 # OSD Tape Image Start: Direct: the tape image's first program goes into RAM and starts (no L, no tape wait);
 # the second is then on the tape for LOAD.
 test('L13', 'MZ700', 'Tape Image Start Direct: BASIC 1Z-013B starts by itself, LOAD gets the next program, LIST',
-     files=[('s', 0, 'gen:td_basic')], opts=[FAST_TAPE(5), (52, 1, 1)], reset=True,
+     files=[('s', 0, 'gen:td_basic')], opts=[FAST_TAPE(5)] + osd('Tape Image Start=Direct'), reset=True,
      steps=[('wait', 8), ('shot', 'basic'), ('type', 'LOAD\n'), ('wait', 12), ('type', 'LIST\n'), ('wait', 4), ('shot', 'list')])
 
 PACK800 = os.path.join(ROOT, 'out/SharpMZ-tester-pack-20261004/games/SharpMZ/MZ-800')
 for n, game in (('L14', 'Exolon'), ('L15', 'Knight Lore')):     # a loading screen, then the game it loads from tape
     test(n, 'MZ800', f'Tape Image Start Direct: {game} (screen loader starts, loads the game from the tape)',
-         files=[('s', 0, f'{PACK800}/{game}.mzt')], opts=[FAST_TAPE(6), (52, 1, 1)], reset=True,
+         files=[('s', 0, f'{PACK800}/{game}.mzt')], opts=[FAST_TAPE(6)] + osd('Tape Image Start=Direct'), reset=True,
          steps=[('wait', 6), ('shot', 'loader'), ('wait', 30), ('shot', 'game')])
+
+# MZ-80B/2000 Boot Reset on (EeDee): a disk mounted while the IPL waits, then a reset, boots it; a second reset goes
+# back to the IPL and boots it again. Boot Reset used to hold the IPL ROM at 0000, so the IPL restarted for ever.
+RESET_KEYS = '29+56+100'
+test('F03', 'MZ80B', 'MZ-80B Boot Reset: disk mounted at the IPL, reset boots CP/M 2.2; reset again boots it again',
+     files=[], late=[('s', 1, f'{SW}/idealine/mz-80b/rb_DSK/DSK/DISK01.DSK', 8)], opts=osd('MZ-80B/2000 Boot Reset=On'),
+     steps=[('wait', 12), ('keys', RESET_KEYS), ('wait', 15), ('shot', 'cpm'), ('keys', RESET_KEYS), ('wait', 15), ('shot', 'again')])
+test('F04', 'MZ2000', 'MZ-2000 Boot Reset: TF-DOS disk mounted at the IPL, reset boots it',
+     files=[], late=[('s', 1, f'{SW}/fukui-mz2000/brave.d88', 8)], opts=osd('MZ-80B/2000 Boot Reset=On'),
+     steps=[('wait', 12), ('keys', RESET_KEYS), ('wait', 20), ('shot', 'boot')])
+
+# OSD Tape Messages: the overlay names the record the tape image is at (TAPE 1/2 S-BASIC on mounting, TAPE 2/2 R.P.S.
+# once BASIC is in and the tape has stopped).
+test('L16', 'MZ700', 'Tape Messages overlay: after L loads BASIC, TAPE 2/2 R.P.S. at the bottom for 3 s',
+     files=[('s', 0, 'gen:td_basic')], opts=[FAST_TAPE(6)] + osd('Tape Messages=On'), reset=True,
+     steps=[('type', 'L\n')] + [s for k in range(24) for s in (('wait', 0.3), ('shot', f'{k:02d}'))])
+
+# MZ-80A floppy: the interface ROM (F000, banks 1Ah-1Bh) boots SA-6510 Disk BASIC: F at the monitor, Return for drive 1.
+test('F02', 'MZ80A', 'MZ-80A floppy: F, Return boots SA-6510 Disk BASIC from drive A',
+     files=[('s', 1, f'{SW}/idealine/mz-80a/SA-6510bootdisk/SA-6510.DSK')], reset=True,
+     steps=[('wait', 4), ('type', 'F\n'), ('wait', 2), ('type', '\n'), ('wait', 12), ('shot', 'basic')])
 
 # OSD Keyboard Layout: PC. Every punctuation key, typed as on a US PC keyboard, shows its own character
 # (characters the model doesn't have type nothing; tools/keymap_measure.py --verify checks the same in the sim).
@@ -258,17 +291,17 @@ test('J01', 'MZ800', 'MZ-800 joystick: right + fire 1 held on a virtual pad, joy
 # 1.44 MB disk as CP/M 4.1's drive C: (OSD Floppy > Drive B Unit: 3rd = unit 2), a blank CP/M (E5) image in drive B:
 # DIR C:, SAVE a file there, DIR C: again; the image is fetched back.
 test('F01', 'MZ800', 'MZ-800 CP/M 4.1: 1.44 MB disk as drive C: (Drive B unit 2): DIR, SAVE, DIR',
-     files=[('s', 1, f'{DSK}/CPMv41 System.dsk'), ('s', 2, 'gen:blank144')], opts=[(48, 1, 1)], reset=True,
+     files=[('s', 1, f'{DSK}/CPMv41 System.dsk'), ('s', 2, 'gen:blank144')], opts=osd('Drive B Unit=1'), reset=True,
      steps=[('wait', 15), ('type', 'DIR C:\n'), ('wait', 6), ('shot', 'dir_empty'), ('type', 'SAVE 1 C:TEST.COM\n'),
             ('wait', 6), ('type', 'DIR C:\n'), ('wait', 6), ('shot', 'dir_saved'), ('fetch', 1)])
 
 # MZ-800 border (OSD Display > MZ-800 Border): Cybernoid and CP/M 4.1 with the border shown.
-test('T29', 'MZ800', 'MZ-800 border on: Cybernoid', files=[('s', 0, f'{GAMES800}/Cyberno.mzf')], opts=[FAST_TAPE(6), (43, 1, 1)],
+test('T29', 'MZ800', 'MZ-800 border on: Cybernoid', files=[('s', 0, f'{GAMES800}/Cyberno.mzf')], opts=[FAST_TAPE(6)] + osd('MZ-800 Border=On'),
      reset=True, steps=[('wait', 6), ('type', 'C'), ('wait', 5), ('type', 'C'), ('wait', 45), ('shot', 'a')])
 test('T31', 'MZ800', 'MZ-800 border on: a program sets the border to light red (OUT (CF) with B = 06)',
-     files=[('s', 0, f'{TESTS}/border.mzf')], opts=[FAST_TAPE(6), (43, 1, 1)], reset=True,
+     files=[('s', 0, f'{TESTS}/border.mzf')], opts=[FAST_TAPE(6)] + osd('MZ-800 Border=On'), reset=True,
      steps=[('wait', 6), ('type', 'C'), ('wait', 5), ('type', 'C'), ('wait', 15), ('shot', 'a')])
-test('T30', 'MZ800', 'MZ-800 border on: CP/M 4.1', files=[('s', 1, f'{DSK}/CPMv41 System.dsk')], opts=[(43, 1, 1)], reset=True,
+test('T30', 'MZ800', 'MZ-800 border on: CP/M 4.1', files=[('s', 1, f'{DSK}/CPMv41 System.dsk')], opts=osd('MZ-800 Border=On'), reset=True,
      steps=[('wait', 15), ('shot', 'boot')])
 
 # More MZ-2000 tapes (software/mz2200): the IPL loads them from the tape image (fast tape 32x).
@@ -299,6 +332,18 @@ for name, model, desc, src, wait in [
         ('L08', 'MZ80K', 'Load Direct on the MZ-80K: Galactic Attack', yb(1980, 'MZ-80K', 'Galactic Attack (1980)(Cromwell Computing).mzf'), 8),
         ('L09', 'MZ80A', 'Load Direct on the MZ-80A: Super Fire', yb(1980, 'MZ-80A', 'Super Fire (1980).mzf'), 8)]:
     test(name, model, desc, files=[('f', 2, src)], steps=[('wait', wait), ('shot', 'run')])
+
+# MZ-700 video (tester report 2026-10-13, G/F/E): Load Direct, then the picture.
+test('X01', 'MZ700', 'MZ-700: Metro-Cross title in place (the MZ-80A E200 scroll no longer acts on the MZ-700)',
+     files=[('f', 2, yb(1989, 'MZ-700', 'Metro-Cross (1989)(Namco).mzt'))], steps=[('wait', 14), ('shot', 'title')])
+test('X02', 'MZ700', 'MZ-700 PCG-700: line 2 shows the programmed EF (set 1), A, the box (set 2); the cursor is the EF',
+     files=[('f', 2, os.path.join(ROOT, 'verilator/tests/mz700/pcg700.mzf'))], steps=[('wait', 5), ('shot', 'pcg')])
+test('X03', 'MZ700', 'MZ-700 Region Japan: Donkey Gorilla title in katakana',
+     files=[('f', 2, yb('19xx', 'MZ-700', 'Donkey Gorilla (19xx)(Tecno Soft).mzt'))], opts=osd('Region=Japan'),
+     steps=[('wait', 20), ('shot', 'title')])
+test('X04', 'MZ700', 'MZ-700 Region Japan: Tiny Xevious in play (the panel on the right)',
+     files=[('f', 2, yb('19xx', 'MZ-700', 'Tiny Xevious (19xx)(Namco).mzt'))], opts=osd('Region=Japan'),
+     steps=[('wait', 12), ('type', ' '), ('wait', 8), ('shot', 'play')])
 # Puckn Boy after MZ-1Z002 BASIC from one tape image (the CMT used to keep sending BASIC's backup copy).
 test('L10', 'MZ2000', 'MZ-2000: MZ-1Z002 BASIC from the IPL, then MON, L: Puckn Boy loads and starts',
      files=[('s', 0, os.path.join(ROOT, 'verilator/out/pb2/t.mzt'))], opts=[FAST_TAPE(5)], reset=True,
@@ -319,14 +364,14 @@ test('L12', 'MZ700', 'MZ-700 Tape Image order: L loads BASIC 1Z-013B (record 1),
 # no daemon needed) and compared with the simulation's bytes (verilator/tests/expected/prn_*.txt).
 PRN = os.path.join(ROOT, 'verilator/tests/printer')
 test('P01', 'MZ700', 'Printer (UART): prntest prints two lines; the bytes on /dev/ttyS1 match the sim (prn_mz700)',
-     files=[('f', 2, f'{PRN}/prntest.mzf')], opts=[(47, 1, 1)],
+     files=[('f', 2, f'{PRN}/prntest.mzf')], opts=osd('Printer=1'),
      steps=[('capture', 'start'), ('wait', 10), ('capture', 'prn_mz700'), ('shot', 'done')])
 test('P02', 'MZ700', 'Printer Charset ASCII: Sharp lowercase and bare CRs arrive as ASCII with CR LF (prn_ascii_mz700)',
-     files=[('f', 2, f'{PRN}/prnsharp.mzf')], opts=[(47, 1, 1), (50, 1, 1)],
+     files=[('f', 2, f'{PRN}/prnsharp.mzf')], opts=osd('Printer=1, Printer Charset=ASCII'),
      steps=[('capture', 'start'), ('wait', 10), ('capture', 'prn_ascii_mz700'), ('shot', 'done')])
 
 test('P03', 'MZ700', 'MZ-700 BASIC: LIST/P, then PRINT/P "HELLO" (the sim seemed to drop the PRINT/P)',
-     files=[('f', 2, yb('BASIC', 'MZ-700', 'BASIC 1Z-013B.mzf'))], opts=[(47, 1, 1)],
+     files=[('f', 2, yb('BASIC', 'MZ-700', 'BASIC 1Z-013B.mzf'))], opts=osd('Printer=1'),
      steps=[('capture', 'start'), ('wait', 6), ('type', '10 REM TEST\n'), ('wait', 1), ('type', 'LIST/P\n'), ('wait', 4),
             ('type', 'PRINT/P "HELLO"\n'), ('wait', 4), ('shot', 'screen'), ('capture', 'show')])
 
@@ -337,8 +382,45 @@ test('P03', 'MZ700', 'MZ-700 BASIC: LIST/P, then PRINT/P "HELLO" (the sim seemed
 test('Z01', 'MZ1500', 'MZ-1500: MZ-5Z001 then Zulpoko as type 05 AUTO RUN: "Illegal data error in 150", as mz1500emu',
      files=[('s', 0, 'gen:zulpoko')], opts=[FAST_TAPE(6)], reset=True,
      steps=[('wait', 6), ('type', 'C'), ('wait', 60), ('shot', 'run')])
-test('Z02', 'MZ1500', 'MZ-1500: Maze Land by Load Tape to CMT, C at the IPL',
-     files=[('f', 1, yb(1983, 'MZ-1500', 'Maze Land (1983)(Enix).mzf'))], opts=[FAST_TAPE(6)],
+test('A01', 'MZ1500', 'MZ-1500 PSG stereo: left PSG 440 Hz, right PSG 880 Hz (HDMI audio from the capture card)',
+     files=[('f', 2, os.path.join(ROOT, 'verilator/tests/mz1500/psgstereo.mzf'))], steps=[('wait', 6), ('audio', 'psg')])
+TESTERS = f'{SW}/testers-2026-10-14'
+test('H06', 'MZ800', 'MZ-800 Cybernoid (Profi), four files on one tape: loading screen, then the menu (mz800emu: menu by ~400 s at real speed)',
+     files=[('s', 0, f'{TESTERS}/Cybernoid (Profi) 4 parts.mzt')], reset=True,
+     steps=[('wait', 6), ('type', 'C'), ('wait', 60), ('shot', 'a'), ('wait', 60), ('shot', 'b'), ('wait', 120), ('shot', 'c'),
+            ('wait', 200), ('shot', 'd')])
+test('H08', 'MZ800', 'MZ-800 Cybernoid (Profi), four files, real speed, VRAM Wait On',
+     files=[('s', 0, f'{TESTERS}/Cybernoid (Profi) 4 parts.mzt')], opts=osd('VRAM Wait=On'), reset=True,
+     steps=[('wait', 6), ('type', 'C'), ('wait', 120), ('shot', 'b'), ('wait', 120), ('shot', 'c')])
+test('H07', 'MZ800', 'MZ-800 Cybernoid (Profi), four files, Fast Tape Fastest',
+     files=[('s', 0, f'{TESTERS}/Cybernoid (Profi) 4 parts.mzt')], opts=[FAST_TAPE(0)], reset=True,
+     steps=[('wait', 6), ('type', 'C'), ('wait', 30), ('shot', 'a'), ('wait', 60), ('shot', 'b'), ('wait', 60), ('shot', 'c')])
+# MZ-1500 programs that scan the keyboard (and more) from Z80 PIO interrupts on PA4 = the 8253's OUT0 (2026-10-14).
+test('Q06', 'MZ1500', 'MZ-1500 Batten Tanuki: side B, Return, then F1 at "F1 -- START" starts the game (was ignored)',
+     files=[('s', 3, f'{TESTERS}/Batten Tanuki no Daibouken (Side A)(1986)(Tecno Soft).qdf')],
+     late=[('s', 3, f'{TESTERS}/Batten Tanuki no Daibouken (Side B)(1986)(Tecno Soft).qdf', 14)], reset=True,
+     steps=[('wait', 4), ('type', 'Q'), ('wait', 14), ('type', '\n'), ('wait', 10), ('shot', 'prompt'), ('keys', '59'),
+            ('wait', 8), ('shot', 'f1')])
+test('Q07', 'MZ1500', 'MZ-1500 Nobunaga no Yabou: F1 loads TITLE, which wants side B (KOEI ...): side B mounted, the game',
+     files=[('s', 3, f'{TESTERS}/Nobunaga no Yabou (Side A)(1984)(Koei).qdf')],
+     late=[('s', 3, f'{TESTERS}/Nobunaga no Yabou (Side B)(1984)(Koei).qdf', 75)], reset=True,
+     steps=[('wait', 4), ('type', 'Q'), ('wait', 40), ('shot', 'prompt'), ('keys', '59'), ('wait', 25), ('shot', 'f1'),
+            ('wait', 45), ('shot', 'sideb')])
+test('Q08', 'MZ1500', 'MZ-1500 Earthbound: title (PCG), then side B and SPACE: part 1 (EmuZ-1500 the same)',
+     files=[('s', 3, f'{TESTERS}/Earthbound (Side A)(1984)(Xtalsoft).qdf')],
+     late=[('s', 3, f'{TESTERS}/Earthbound (Side B)(1984)(Xtalsoft).qdf', 120)], reset=True,
+     steps=[('wait', 4), ('type', 'Q'), ('wait', 50), ('shot', 'title'), ('wait', 70), ('shot', 'sideb'), ('type', ' '),
+            ('wait', 40), ('shot', 'part1')])
+test('Q09', 'MZ1500', 'MZ-1500 3-D Golf: title, "turn the QD to side B and press F1": side B, F1, the game',
+     files=[('s', 3, f'{TESTERS}/3-D Golf Simulation (Side A)(1984)(T&E Soft).qdf')],
+     late=[('s', 3, f'{TESTERS}/3-D Golf Simulation (Side B)(1984)(T&E Soft).qdf', 60)], reset=True,
+     steps=[('wait', 4), ('type', 'Q'), ('wait', 45), ('shot', 'a'), ('wait', 20), ('keys', '59'), ('wait', 40), ('shot', 'b')])
+test('Z04', 'MZ1500', 'MZ-1500: MZ-5Z001 and Zulpoko as one tape in the Quick Disk slot: Q, LOAD "ZULPOKO", RUN: its title',
+     files=[('s', 3, 'gen:qdtape_zulpoko')], reset=True,
+     steps=[('wait', 4), ('type', 'Q'), ('wait', 30), ('shot', 'basic'), ('type', 'LOAD "ZULPOKO"\n'), ('wait', 15),
+            ('type', 'RUN\n'), ('wait', 30), ('shot', 'run')])
+test('Z02', 'MZ1500', 'MZ-1500: Maze Land from the tape image, C at the IPL',
+     files=[('s', 0, yb(1983, 'MZ-1500', 'Maze Land (1983)(Enix).mzf'))], opts=[FAST_TAPE(6)],
      steps=[('wait', 12), ('shot', 'menu'), ('type', 'C'), ('wait', 5), ('shot', 'loading'), ('wait', 30), ('shot', 'run')])
 test('Z03', 'MZ1500', 'MZ-1500: Maze Land by Load Direct to RAM (starts by itself)',
      files=[('f', 2, yb(1983, 'MZ-1500', 'Maze Land (1983)(Enix).mzf'))],
@@ -361,7 +443,7 @@ test('V02', 'MZ80A', 'Scandoubler HQ2x: MZ-80A monitor (60 Hz, 8 MHz pixels)', o
 test('V03', 'MZ800', 'Scandoubler CRT 25%: MZ-800 CP/M 4.1 (640 mode)', files=[('s', 1, f'{DSK}/CPMv41 System.dsk')], opts=[SDFX(2)],
      reset=True, steps=[('wait', 15), ('shot', 'boot')])
 test('V04', 'MZ800', 'Scandoubler CRT 50% with the MZ-800 border', files=[('s', 0, f'{TESTS}/border.mzf')],
-     opts=[FAST_TAPE(6), (43, 1, 1), SDFX(3)], reset=True,
+     opts=[FAST_TAPE(6), SDFX(3)] + osd('MZ-800 Border=On'), reset=True,
      steps=[('wait', 6), ('type', 'C'), ('wait', 5), ('type', 'C'), ('wait', 15), ('shot', 'a')])
 test('V05', 'MZ80B', 'Scandoubler CRT 50%: MZ-80B (80 columns, 16 MHz pixels)', files=[('s', 1, f'{RB}/DISK23.DSK')], opts=[SDFX(3)],
      reset=True, steps=[('wait', 20), ('shot', 'boot')])
@@ -383,6 +465,9 @@ def sh(cmd, **kw):
     return subprocess.run(cmd, shell=True, check=True, **kw)
 
 
+# HDMI capture card for audio steps (it shows mister126's output; tools on misterubuntu).
+CAPTURE_HOST = os.environ.get('CAPTURE_HOST', 'misterubuntu')
+CAPTURE_PCM = os.environ.get('CAPTURE_PCM', 'plughw:CARD=U25773,DEV=0')
 REFS = os.path.join(ROOT, 'tools/mister_refs.json')   # md5 of each screenshot from a good run (--update-refs)
 # One ssh connection for the whole run (each step was a new connection, about half a second).
 SSH_OPTS = ['-o', 'ControlMaster=auto', '-o', 'ControlPath=/tmp/mister_test_%r@%h:%p', '-o', 'ControlPersist=120']
@@ -488,7 +573,7 @@ def basic_tests(n, seed=1):
 
 # --quick: one or two tests per model and feature (about 15 minutes).
 QUICK = {'T01', 'T02', 'T03', 'T04', 'T05', 'T06', 'T07', 'T08', 'T09', 'T13', 'T21', 'T22', 'T25', 'T26',
-         'W01', 'L01', 'L04', 'L05', 'L07', 'L08', 'L09', 'L10', 'L12', 'V01'}
+         'W01', 'L01', 'L04', 'L05', 'L07', 'L08', 'L09', 'L10', 'L12', 'V01', 'X01', 'X02', 'X03', 'X04'}
 
 MENU = f'{FAT}/_SharpMZ Tests'      # a folder starting with _ shows in the MiSTer main menu
 
@@ -506,6 +591,8 @@ def steps_file(t):
             out.append('key ' + ' '.join(str(KEYS[c]) for c in arg.upper()))
         elif op == 'pctype':
             out.append('key ' + ' '.join(PCKEYS[c] for c in arg.upper()))
+        elif op == 'keys':
+            out.append('key ' + arg)
         elif op == 'shot':
             out.append(f'shot {arg}')
     return '\n'.join(out) + '\n'
@@ -542,6 +629,9 @@ def main():
     ap.add_argument('--only')
     ap.add_argument('--quick', action='store_true', help='a short set: one or two tests per model and feature')
     ap.add_argument('--basic', type=int, metavar='N', help='BASIC triage instead: N random BASIC programs per model')
+    ap.add_argument('--sweep', nargs=4, metavar=('MODEL', 'SLOT', 'WAIT', 'GLOB'),
+                    help='one test per file matching GLOB: mount it in image slot SLOT (0 tape, 1/2 floppy, 3 QD), reset, '
+                         'wait WAIT seconds, screenshot (e.g. --sweep MZ80B 1 15 "software/idealine/mz-80b/rb_DSK/DSK/*.DSK")')
     ap.add_argument('--update-refs', action='store_true',
                     help='after the run, keep each screenshot\'s md5 in tools/mister_refs.json (only from a good run)')
     ap.add_argument('--no-refs', action='store_true', help='fixed waits, ignoring tools/mister_refs.json')
@@ -551,6 +641,15 @@ def main():
                     help=f'only deploy: put each test as an MGL in "{MENU}" (MiSTer main menu) to run by hand')
     a = ap.parse_args()
     pool = basic_tests(a.basic) if a.basic else T
+    if a.sweep:
+        import glob as _glob
+        model, slot, wait, pattern = a.sweep
+        steps = [('wait', float(wait)), ('shot', 'boot')]
+        if model == 'MZ1500' and slot == '3':     # Quick Disk: Q at the IPL, as the Q tests, then two pictures
+            steps = [('wait', 4), ('type', 'Q'), ('wait', float(wait)), ('shot', 'a'), ('wait', 20), ('shot', 'b')]
+        pool = [dict(name=f'S{i:02d}', model=model, desc=os.path.basename(f), files=[('s', int(slot), os.path.abspath(f))],
+                     opts=[], reset=True, steps=steps, late=[])
+                for i, f in enumerate(sorted(_glob.glob(pattern)))]
     tests = [t for t in pool if not a.only or t['name'] in a.only.split(',')]
     if a.quick:
         tests = [t for t in tests if t['name'] in QUICK]
@@ -590,6 +689,11 @@ def main():
                 z = bytearray(open(yb(1987, 'MZ-1500', 'Zulpoko Daisakusen (1987)(TAS).mzt'), 'rb').read())
                 z[0] = 5; z[1:18] = b'AUTO RUN\r' + bytes(8)
                 open(src, 'wb').write(b + z)
+            if src == 'gen:qdtape_zulpoko':   # MZ-5Z001's BASIC record, then Zulpoko as it is (type 02): a tape for the QD slot
+                src = os.path.join(stage, 'qdtape_zulpoko.mzt')
+                b = open(f'{SW}/mz1500/5Z001.mzt', 'rb').read()
+                open(src, 'wb').write(b[:128 + (b[18] | b[19] << 8)] +
+                                      open(yb(1987, 'MZ-1500', 'Zulpoko Daisakusen (1987)(TAS).mzt'), 'rb').read())
             if src == 'gen:mz2000_search':  # MZ-1Z002 BASIC (an MZF around the ROM dump), Piranha-kun, Explorer
                 src = os.path.join(stage, 'mz2000_search.mzt')
                 b = open(f'{SW}/rom-candidates/emuz2000_tf/emuz2000/MZ-1Z002.dat', 'rb').read()
@@ -668,6 +772,9 @@ def main():
                 m.wait_for(arg, ref)
             elif op == 'type':
                 m.type(arg)
+            elif op == 'keys':            # raw key codes / chords, e.g. 29+56+100 (LCtrl+LAlt+RAlt: MiSTer's reset)
+                m.ssh(f'python3 {Mister.KEYS_TOOL} key {arg}')
+                time.sleep(1)
             elif op == 'pctype':
                 codes = [PCKEYS[c] for c in arg.upper()]
                 m.ssh(f'python3 {Mister.KEYS_TOOL} key ' + ' '.join(codes))
@@ -694,6 +801,17 @@ def main():
                     ok = got == want
                     print(f'   printer bytes {"match" if ok else "DIFFER"} {arg}' + ('' if ok else f'\n     got  {got}\n     want {want}'))
                     results.append((t['name'], f'printer bytes vs {arg}: {"match" if ok else "DIFFER"}', '', ok))
+            elif op == 'audio':             # record the HDMI audio from the capture card (on CAPTURE_HOST) for 4 s
+                wav = f'/tmp/{t["name"]}_{arg}.wav'
+                subprocess.run(['ssh', CAPTURE_HOST, f'arecord -q -D {CAPTURE_PCM} -f S16_LE -c 2 -r 48000 -d 4 {wav}'],
+                               check=True)
+                local = os.path.join(a.out, 'shots', os.path.basename(wav))
+                os.makedirs(os.path.dirname(local), exist_ok=True)
+                subprocess.run(['scp', '-q', f'{CAPTURE_HOST}:{wav}', local], check=True)
+                lvl = subprocess.run(['python3', os.path.join(ROOT, 'verilator/tests/wav_stereo.py'), local, '0.5', '3'],
+                                     capture_output=True, text=True).stdout.strip()
+                print(f'   audio {arg}: {lvl} (Hz, peak-to-peak of 65536)')
+                results.append((t['name'], f'audio {arg}: {lvl}', '', True))
             elif op == 'shot':
                 m.cmd(f'screenshot {t["name"]}_{arg}.png')
                 time.sleep(1.5)

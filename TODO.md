@@ -19,6 +19,7 @@ Design notes are in `docs/design.md`, and the simulation and tests in `verilator
 | MZ-80B | Boots the IPL; loads SB-5520 BASIC from a tape image and SB-6511 Disk BASIC / CP/M 2.2 from floppy (sim and hardware). |
 | MZ-2000 | Real IPL (MAME mz20ipl.bin) and MZ-2000 character ROM with katakana (MAME font.bin, hand-made, BAD_DUMP). Loads Gang Man and Zero Fighter (colour) from tape and boots a TF-DOS D88 disk with Japanese text, in the sim and on hardware. |
 | FPGA | Latest build (6e70d0e, clean) meets timing (core clock +2.1 ns): about 18,750 ALMs (45%), 74% of block memory bits (the RAM disk adds 64 KB). Built on cottageubuntu or locally in the Quartus container. Built on cottageubuntu (Quartus 17.0.2); always clean-build (`rm -rf db incremental_db`). |
+| Sim = hardware | `rtl/sharpmz_top.sv` holds everything between hps_io and video_mixer, and both `SharpMZ.sv` and the sim (`verilator/sim.v`) use it. The sim takes the OSD status word (`--osd "Name=Value"`, by the CONF_STR names) and Main-style downloads. `tools/osd_sweep.py` runs every value of every OSD option; `tools/mister_test.py` names options the same way (`tools/sharpmz_osd.py`). |
 | Regression | `make test`: 48 tests (boot, keyboard, MZ-800 graphics, tape, floppy, Quick Disk, printer, Load Direct, sound), some needing `software/` (see `verilator/README.md`). All pass. Hardware suite: `tools/mister_test.py`, MGL tests T01-T31, Q, B, C, W, G, H, K, V and L01-L12 (2026-10-08). Keys go through `tools/mister_keys.py`, a uinput keyboard kept on the SD card at `/media/fat/tools/` (no mrext needed). Builds: `misterubuntu` (~7 min) or the local Quartus container. |
 
 ## Open work
@@ -48,6 +49,159 @@ In order; each result is checked on mister.local later.
 10. [x] Tester pack `out/SharpMZ-tester-pack-20261004.zip`: newest core, Knight Lore / Exolon tapes, Youkai, the triage fixes (Base Zero, Revers, MZ-700-mode black), printer test.
 
 Waiting for the hardware: the scandoubler on a CRT and a VGA monitor; Knight Lore and Exolon with a real joystick; Tape Sound by ear; hardware runs of whatever 1-7 fix.
+
+### Tester reports 2026-10-14 (Danjuro, EeDee; on SharpMZ_20261014)
+Region Japan works for the testers' games. EeDee: replacement ROMs persist but "only for one machine at a time";
+MZ-80B/2000 and MZ-80A floppies work; the tape image is "a different beast"; OSD Reset works; some MZ-1500 Quick
+Disks load and some don't (21 images in ~/Downloads/qd.zip).
+
+Reference checks: mz800emu's headless mode now takes `--qd FILE` and `--qd-swap FRAME:FILE` (refs/mz800emu, ours);
+`.qdf` images go through `tools/qdf2mzq.py`. `mister_test.py --sweep MZ1500 3 WAIT GLOB` presses Q at the IPL.
+
+1. [x] Tiny Xevious panel: the game prints through the monitor (CALL 0015); with the Japanese monitor 1Z-009B it reads
+   "tiny XEVIOUS mz-700 / (c)namco / By.K.F." (sim). OSD "Region: Europe / Japan" (status 56) replaces MZ-700 Char
+   Set: on the MZ-700, Japan is the Japanese CG (bank Ah), monitor 1Z-009B (banks 34h/35h, MZ700J_1Z009B.rom from
+   idealine's 1z-009b.zip; the MZ-1500 monitor is the same ROM with reset to the IPL), and 60 Hz. Changing it resets.
+   Sim: boot_mz700j (1Z-009B; 59072 cycles a frame = 60.04 Hz, against 70887 = 50.04 Hz).
+2. [x] 60 Hz: the MZ-1500 and the Japanese MZ-700 use the 60 Hz colour timing (568 x 260, 15.6 kHz); European
+   MZ-700/800 stay 50 Hz.
+   - [ ] On hardware: timing, picture, and that games run at their original speed.
+3. [ ] MZ-1500 sound. Measured: the sim (new `--wav-out`: the core's final stereo output) and the hardware (capture
+   card, `('audio', label)` steps; mister126 needed `dvi_mode=0` in MiSTer.ini, backup MiSTer.ini.bak_dvi, and the
+   card's "Digital In" capture switched on) both give left 440 Hz / right 880 Hz for tests/mz1500/psgstereo.mzf
+   (test A01, sim psg_mz1500): the stereo works. The level was 4095 of 65535 peak to peak for one channel at full
+   volume (1/16 of full scale). Now 3x on the MZ-800/1500 (PSGs and beeper): 12285.
+   - [ ] "Left only" in some games: ask Danjuro which games (the ones that show "Stereo sound!").
+   - [ ] Hardware level check of the new build (A01).
+4. [x] Load Tape to CMT removed from the OSD (Tape Image does it all). The core still takes file index 1 (the sim's
+   `--mzf` uses it). T07 and Z02 use the tape image.
+5. [x] Tapes in the Quick Disk slot: S3 takes .mzt/.mzf; mz_qdisk shows the tape as the disk tools/mzf2qdf.py makes
+   (byte-identical stream: tests/qd_tape, a testbench of mz_qdisk, run by run_tests.sh). Read only. Tape message
+   "QD:" (in place of "TAPE") for an MZ-5Z001 Quick Disk BASIC file (type 02 at A215) on an MZ-1500 tape. Hardware: N01-N05 (tapes
+   mounted as the QD), Z04 (MZ-5Z001 + Zulpoko as one tape in the QD slot, LOAD, RUN).
+   - Door Door and the other two-tape titles: side A from the tape image, side B mounted as the Quick Disk.
+   - Bacterianns, Zulpoko, Techno City Cars: BASIC from its disk or tape, then the program's tape in the QD slot, LOAD.
+6. [x] Batten Tanuki (QD): F-keys did nothing. The game scans the keyboard in a Z80 PIO interrupt (IM 2, PIO port A
+   bit 4 = the 8253's OUT0, active high) taken at each terminal count of counter 0 (mode 0, reloaded by the handler).
+   The core, like mz800emu, gave the PIO the inverse of OUT0 (the MZ-800's /CTC0): one interrupt, then none. On the
+   MZ-1500 PA4 is now OUT0 itself (mz80c.vhd); the MZ-800 keeps the inverse. tests/mz1500/pioint.mzf (sim
+   pio_mz1500): 3785 interrupts by frame 300 (was 1; mz800emu gives 1). Hardware Q06: F1 starts the game.
+   May also be behind Danjuro's skipped keys and some sound on other MZ-1500 titles: retest those.
+7. [x] 3-D Golf, Earthbound, Nobunaga no Yabou (and Zulpoko's "Illegal data error in 150"): fixed. On the MZ-1500,
+   OUT E5 (open the CG/PCG window) also switched D000-FFFF from RAM to ROM in the core (mz80c.vhd, as mz800emu), so
+   after OUT E6 a program that had mapped RAM with E1 found ROM there: Nobunaga's INPUT KNJ returned through its stack
+   at FDxx into the ROM (F6DB) and the ROM's QD loader searched side A forever. In Takeda's EmuZ-1500 E5 only opens
+   the window (it covers D000-EFFF, F000-FFFF empty) and E6/E4 close it; the bank choice is kept. Found by comparing
+   CPU traces with the macOS port of CSCP (~/dev2/common_source_code, scripted mode added: --script, --qd,
+   --qd-swap, --type, --screenshot, --dump-every, --trace-cpu). Also fixed on the way, as the Z80 SIO / EmuZ-1500:
+   the QD SIO's 3-byte receive FIFO, a channel reset clears overrun, the head goes home at the end of the disk.
+   mister126: Q07 Nobunaga title ("HIT ANY KEY"), Q08 Earthbound title, side B, part 1, Q09 3-D Golf title, side
+   B, F1, the game; Z04 Zulpoko's title; no change to Q01-Q06, W01, C01-C03, N01.
+   (The kanji ROM board was a wrong guess: the game never touches its ports. mz800emu stops earlier, on its PIO
+   interrupts.)
+8. [x] EeDee's 21 QD images (14 disks/side A) on mister126: every one ends where mz800emu ends. Run: Diamond Chase,
+   Excite 4-nin Mahjong, Nonbarla Panic, Sonic Birds, Zexas. Ask for side B (correct): Dig Dug, New Rally-X, Flappy.
+   "QD:File mode error": Cockpit and Sparrow are BASIC programs (type 02) on disks without BASIC: boot MZ-5Z001 first
+   (now: its tape in the QD slot), then this disk, RUN"COCKPIT". T.N.T. Bomb Bomb loads its PCG data (slow).
+9. [ ] Cybernoid (MZ-800, Profi, 4 files: loader 4F00, CYB1-3): a core bug. mz800emu (the four files as one tape, C at
+   the IPL) shows the Cybernoid loading picture with a counter and reaches the game's menu at about frame 20000
+   (real tape speed). On mister126 (H06 real speed, H07 Fastest, H08 VRAM Wait On) the picture comes out scrambled
+   (the artwork's outline, garbled) and the counter stops at 979. The loader is packed (no plain ROM calls): likely
+   its own tape routine, drawing while it loads, misreading bits. Next: CPU traces of the sim and mz800emu from the
+   loader's start, first divergence (tape bit timing, wait states, the 8253/PIO it may use for timing).
+10. [ ] EeDee: "ROMs persistent for one machine at a time": Load System ROM is one remembered file (FC) for the core,
+   not per model. Explain; a per-model ROM would need one CONF_STR entry per model.
+11. [ ] Tape image: EeDee is still working it out (item B): a README walkthrough.
+12. [ ] Danjuro (later, with emulators): "a lot of games, even text adventures, had a sort of lag (sometimes key
+   input would be skipped), which didn't happen in the emulators". Check on 20261014b (60 Hz MZ-1500): keyboard
+   scan vs. PS/2 key timing (keymatrix hold, the PC layout's forced SHIFT lead/tail), with mister_keys typing fast.
+   Lead: keymatrix's key hold keeps every pressed key in the matrix until 50 ms after the latest press, so two keys
+   pressed within 50 ms are both down at once (the first even if already released); routines that ignore two keys
+   down would skip one. Ask Danjuro for a title and test typing on hardware.
+13. Danjuro's emulator notes: Tiny Xevious's side panel is right in the emulators (it is on 20261014b with Region
+   Japan); MZ-800 was 50 Hz only (kept); Bacterianns fails there too; Door Door works; Batten Tanuki's F-keys work
+   there (so item 6 is the core's: reproduced in the sim, F1 at the prompt changes nothing).
+
+### Tester reports 2026-10-13 (on SharpMZ_20261012/12b)
+Confirmed fixed by testers: replacement ROMs persist, MZ-80A floppy, OSD Reset. Tester 2 suspects their own MiSTer is faulty,
+so their results need confirming here. Files from tester 3 are byte-identical to the year-based collection's copies.
+
+**A. MZ-80B / MZ-2000 floppy hangs (EeDee): fixed (2026-10-13).** With OSD MZ-80B/2000 Boot Reset on, the IPL loaded the
+boot program, then restarted for ever ("IPL is loading CP/M 2.2" flashing): `mz80b.vhd` held BOOTSTRAP_n (IPL ROM at 0000)
+for as long as the option was on, so the IPL's switch to RAM (NST) never took. Boot Reset now acts only at a reset. Our
+tests passed because they leave Boot Reset off; EeDee needs it on to get back to the IPL with a reset. The floppy
+controller now also takes the machine's warm reset, as the real interface does (it had only the core's cold reset).
+On hardware: F03 (MZ-80B, disk mounted at the IPL, reset boots CP/M 2.2, reset again boots it again), F04 (MZ-2000
+TF-DOS the same way). Sim: `--fdd-frame N` (mount later), `--boot-reset`. Test tool: `--sweep MODEL SLOT WAIT GLOB`,
+`('keys', '29+56+100')` steps. Fresh-core sweep of the idealine MZ-80B disks: DISK06 and DISK10 report "Repeated read
+error" (check against MAME or their CRCs).
+- [ ] Sim regression test for Boot Reset + disk (fdd_mz80b_br).
+- [x] DISK06 / DISK10 read errors on the MZ-80B: bad dumps, not the core. Both images lack track 0 sector 19 (9 of the 10
+      sectors; every other track and DISK05 have 10), and that sector holds system data on the other disks, so a real
+      MZ-80B would report the same error. DISK06 also has a duplicate sector 11 on track 12 (harmless). No other copies
+      in the collection.
+
+**B. Tape Image is hard to follow (EeDee).** Already improved in 20261012b by Tape Messages (TAPE n/total NAME).
+- [ ] Check with EeDee once on 12b; consider a README walkthrough (mount, C/L, how records advance, Rewind).
+
+**C. MZ-1500 BASIC: "CMT: Illegal filemode error" at the end of loading BASIC; then LOAD fails (tester 3).**
+BASIC mz-5z001.mzt (A216 bytes + a type 02 AUTO RUN record), Zulpoko Daisakusen and Techno City Cars (type 02, load A215).
+MZ-5Z001 rejects type 02 in the core; patched to 05, Zulpoko stops at "Illegal data error in 150", as in mz1500emu (Z01).
+But three files of the collection use 02 for MZ-5Z001 programs, so 02 may be right and something else is wrong.
+- [x] mz1500emu with the unmodified BASIC tape: the same "CMT:Illegal filemode error" (on the type 02 AUTO RUN record).
+      The core matches the reference: the tape images are wrong, not the core.
+- [x] As a Quick Disk (`tools/mzf2qdf.py` with MZ-5Z001 + both programs, Q at the IPL): LOAD "ZULPOKO" and LOAD "TCCARS"
+      work (no filemode error), so these are Quick Disk files (02 = BTX on QD) dumped to tape.
+- [x] But neither runs: Zulpoko stops at "Illegal data error in 150" (as in mz1500emu with the type patched to 05);
+      Techno City Cars clears the screen and ends at Ready. The dumps probably lack files the originals had on the disk
+      (PCG data, machine code), or need another BASIC. mz1500emu hung loading TCCARS from a patched tape (inconclusive).
+- [ ] Ask the tester for the original Quick Disk dumps (.qdf/.mzq) of these TAS titles.
+- [ ] Planned (not started): detect type 02 records on the MZ-1500/800 when a tape is mounted and say so: a MiSTer info
+      popup (CONF_STR `I,`, fixed text: "Quick Disk files on this tape; MZ-5Z001 can't load them from tape") and the
+      overlay naming the record (`TAPE 2/3 ZULPOKO: QD FILE`). README note on `mzf2qdf.py`. Sim and hardware tests.
+- [ ] Dark Storm - Demon Crystal III (type 01, sides A and B): C at the IPL with side A, then side B. Check it loads.
+
+**D. MZ-1500 "didn't load anything" (tester 2).** Loads then nothing happens, or the machine resets.
+- [ ] Ask for titles and how they were loaded (Tape Image / Load Direct / Start Direct, Fast Tape setting).
+- [ ] Try Dark Storm and a few C01-C24 titles with each method; Load Direct on the MZ-1500 starts at the exec address
+      without the IPL's setup (PCG, PSG, banks), so it may need the IPL path instead.
+
+**E. Japanese MZ-700/800 programs: no Japanese character set (tester 2).** Japanese adventure games show garbage; the
+Japanese MZ-700 has a CG ROM with katakana in place of the European lower case.
+- [x] The MZ-1500's CG in the core is MAME's `mz700fon.jpn`, the Japanese MZ-700 font, already in the core's format
+      (CG bank Ah). New OSD option MZ-700 Char Set: Europe / Japan selects it on the MZ-700 (status 56,
+      CONFIG(CG_JAPAN)). Sim: `--osd "MZ-700 Char Set=Japan"`. Hardware: X03 (Donkey Gorilla), X04 (Tiny Xevious).
+- [ ] MZ-800 Japanese: its CG is read by the CPU from the MZ-800 system ROM (1000-1FFF) and copied by the IPL into the
+      700-mode CG-RAM, so it needs a Japanese MZ-800 ROM image as well as a CG bank.
+- [ ] MZ-80K Japanese CG (idealine `MZ80K2E Jap CG`, 2 KB): the CG ROM image is full (12 banks), so it needs extending.
+
+**F. MZ-700 PCG (tester 2): "some games might use the PCG-8800".** Probably the HAL PCG-700, the MZ-700's PCG.
+- [x] The core had its registers (E010 data, E011 address, E012 control: bits 0-1 address, 2 set, 3 display off,
+      4 strobe, 5 copy from ROM; idealine pcg700_05) but never switched the display to the PCG RAM (E012 bit 3 was
+      ignored) and wrote set 2 into set 1 on the MZ-700. Fixed in VideoController: with bit 3 low the upper 128
+      characters of each set come from the PCG RAM. Off at reset. Sim test pcg700_mz700 (tests/mz700); hardware X02.
+      mz800emu has no PCG-700, so the reference is the documentation.
+- [ ] Try Mappy with its PCG data (Year-Based 1984) and PCG BASIC (idealine) on hardware.
+
+**G. Graphics glitches on MZ-700 games (tester 2).**
+- [x] Metro-Cross (a third of the screen on the left): the game reads E200-E2FF in play; the core applied the MZ-80A's
+      hardware scroll (and E014/E015 display invert) on the MZ-700 too, which has neither. Now MZ-80A only. The
+      title matches mz800emu. Sim test e2scroll_mz700; hardware X01. `--trace-io` also logs those E-page accesses.
+- [x] Donkey Gorilla's garbled title and the odd text in Tiny Xevious and Metro-Cross ("(c) namco", "Arranged by
+      Oh!mz") are Japanese-set text shown in the European set (mz800emu shows the same); with MZ-700 Char Set: Japan
+      Donkey Gorilla's title is its Japanese instructions and the Namco texts read correctly (item E).
+- [ ] Tiny Xevious's side panel in play (":TINY: XEVIO :MZ", "(:C:):NA") is the same in mz800emu and in both sets;
+      ask the tester whether that is what they meant.
+
+Working well for testers: Snake & Snake (MZ-700), Donkey Gorilla in play, MZ-80K/80A BASIC programs.
+
+### Tester report 2026-10-12 (after the first release)
+- [x] Replacement ROMs persist: Load System ROM and Load CGROM are remembered OSD files (`FC`), so Main reloads the last one at every core start, and the machine is held and reset while a ROM image loads, so it starts on it. `boot.rom` in games/SharpMZ loads too. On hardware: with 80ktc chosen once, the core starts in it ("System Monitor"). Found on the way: Load System RAM and Load CGROM wrote over the monitor ROM (Main gives every file address 0; the CONF_STR addresses only count in DDR); they now go to their own regions.
+- [x] Tape position on screen (OSD Tape Messages, on by default): `rtl/tape_osd.sv` draws a line at the bottom of the picture for 150 frames when the tape image has a record ready (`TAPE 2/5 NAME`), reaches the end, saves or is full, in the MZ-700's characters (`tools/make_osd_font.py`). MiSTer's info popups (CONF_STR `I,`) only show fixed strings, so they can't name the program. On hardware: TAPE 1/2 S-BASIC on mounting, TAPE 2/2 R.P.S. once BASIC is in (L16). The first message comes a few seconds after the core starts, when the record has loaded.
+- [x] MZ-80A floppy: its interface has the FDC at D8-DD as the MZ-700's, so mz_fdc now runs on the MZ-80A with its interface ROM at F000 (MZ80A_FDIF.rom, banks 1Ah-1Bh, `tools/patch_roms.py`). The ROM doesn't poll: its INI loop runs through an opcode fetch at F3FE (F7FE), and the interface holds the CPU in WAIT there while a command runs and no byte is ready (`mz_fdc` wait_req, `sharpmz.vhd`). `F` at the monitor, Return: SA-6510 Disk BASIC boots (sim test fdd_mz80a; hardware F02).
+- [ ] MZ-80K floppy: a different interface (ports F8-FA, motor by IN (C), DRDY/CRDY/RQM flags; ROM and source in `software/idealine/mz-80k/mz80kfdif`), so it needs its own controller model. The old core never had it either.
+- [ ] Load real tapes through MiSTer's audio input (upstream issue #7): the core leaves ADC_BUS unused; other cores feed the ADC's tape signal (sys/ltc2308) into their cassette input. Feed it to the CMT read bit.
+- Already done in the release (the tester had an older build): OSD Reset works (fixed in 20261009b); floppies work on the MZ-700 (`J F000`), MZ-800, MZ-80B and MZ-2000 (mount, then reset).
 
 ### Next
 - [ ] Sound tests for the other models: MZ-80K/80A note table (does the MZ-80K need the counter 0 divide-by-2?), MZ-800 PSG channels and noise, MZ-80B/2000 PC2.
