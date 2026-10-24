@@ -1,0 +1,5 @@
+<mistergamedescription>
+	<rbf>_Computer/SharpMZ</rbf>
+	<setname same_dir="1">SharpMZ-80B</setname>
+	<option name="Model" value="MZ-80B" default="1"/>
+</mistergamedescription>

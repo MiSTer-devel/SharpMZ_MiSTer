@@ -15,7 +15,7 @@ How it compares with the original v2 core, NibblesLab's DE0 cores, mz800emu and 
 ## Features
 
 * Z80 CPU at the original speed (2 MHz MZ-80K/C/1200/A, 3.547 MHz MZ-700/800, 4 MHz MZ-80B/2000), with turbo steps up to about 32–35 MHz.
-* Native video timing, 15.6 kHz (MZ-700/800/1500 50 Hz PAL, the others 60 Hz), scaled by the MiSTer framework for HDMI; analog output gets the native 15 kHz signal, or 31 kHz through the scandoubler (HQ2x, scanlines) for VGA monitors.
+* Native video timing, 15.6 kHz (European MZ-700/800 50 Hz PAL; the MZ-1500, the Japanese MZ-700 and the others 60 Hz), scaled by the MiSTer framework for HDMI; analog output gets the native 15 kHz signal, or 31 kHz through the scandoubler (HQ2x, scanlines) for VGA monitors.
 * 40x25 and 80x25, mono and colour character modes; programmable character generator (PCG): the MZ-700's HAL PCG-700 (E010-E012; programs switch it on), the MZ-1500's PCG; MZ-80B/2000 graphics RAM.
 * MZ-800: IPL and 9Z-504M monitor, MZ-700 and MZ-800 modes with the MZ-800 memory map, all 320x200/640x200 graphics modes with hardware scroll, the SN76489 sound chip and the Z80 PIO.
 * Floppy disk (MB8876 interface on the MZ-700, MZ-800, MZ-80B and MZ-2000): two drives from Extended DSK (`.dsk`) or D88/D77 images. The MZ-800 IPL boots CP/M 1.x, 2.3 and 4.1 disks; the MZ-80B/2000 IPL boots Disk BASIC, CP/M and TF-DOS.
@@ -28,9 +28,32 @@ How it compares with the original v2 core, NibblesLab's DE0 cores, mz800emu and 
 
 Copy `SharpMZ_<date>.rbf` from `releases/` to the `_Computer` folder of your MiSTer SD card, and put your tape files (`.mzf`, `.mzt`) and disk images (`.dsk`) in `games/SharpMZ/`.
 
+### Optional: one menu entry per machine
+
+The `mgl/` folder has an MGL file for each machine (`Sharp MZ-80K.mgl` … `Sharp MZ-1500.mgl`, and
+`Sharp MZ-700 (Japan).mgl`). They are not installed by the MiSTer updater; copy the ones you want to `_Computer`
+next to the core. Each appears in the Computer menu as its own entry, starts on its own machine, and keeps its own
+saved settings and its own remembered System ROM / CGROM, so switching machines no longer means changing the Model
+and saving again.
+
+They choose the machine with MGL `<option>`, which needs a Main (MiSTer binary) newer than MiSTer_20261010. With an
+older Main the entries still work, but each starts as an MZ-80K the first time: pick its Model and Save Settings once.
+
+```xml
+<mistergamedescription>
+	<rbf>_Computer/SharpMZ</rbf>
+	<setname same_dir="1">SharpMZ-700</setname>
+	<option name="Model" value="MZ-700" default="1"/>
+</mistergamedescription>
+```
+
+**Games folder.** With `same_dir="1"` (as shipped) every entry browses `games/SharpMZ`. To give each machine its own
+folder, remove `same_dir="1"` (`<setname>SharpMZ-700</setname>`): that entry then uses `games/SharpMZ-700`. The
+settings and ROMs are per machine either way.
+
 ## Using the Emulator
 
-The core boots as an MZ-80A with the SA-1510 monitor. Press F12 for the OSD.
+The core boots as an MZ-80K with the SP-1002 monitor. Press F12 for the OSD.
 
 Load Direct, the tape image, the two floppy drives and the Quick Disk are on the OSD's first page; the other settings are in the Machine, Tape, Display, Floppy and ROM and RAM pages below. MGL files can load any of the first-page entries (`<file type="f" index="2">` for Load Direct to RAM, `type="s" index="0"` for the tape image, `index="1"`/`"2"` for the drives).
 
@@ -38,13 +61,13 @@ Load Direct, the tape image, the two floppy drives and the Quick Disk are on the
 
 | Option | Description |
 | ------ | ----------- |
-| Model | MZ-80A, MZ-80K, MZ-80C, MZ-1200, MZ-700, MZ-80B, MZ-2000, MZ-800 or MZ-1500. Changing model resets the machine. |
+| Model | MZ-80K, MZ-80C, MZ-80A, MZ-1200, MZ-80B, MZ-2000, MZ-700, MZ-800 or MZ-1500 (by date). Changing model resets the machine and ejects the tape and disks. |
 | CPU Speed | Normal is the original speed; 2x to 16x multiply it, and Fastest is the most the core can do on that model (about 35 MHz, clk_sys/2). On the MZ-700/800/1500 16x is already the fastest. |
 | MZ-80B/2000 Boot Reset | MZ-80B/2000: reset back into the IPL. |
 | Keyboard Layout | PC (default): each key types what is printed on it, as on a US PC keyboard, on every model: the core presses or releases the machine's SHIFT as needed (on the MZ-80A, @ is unshifted and " is SHIFT 2). Letters, Return, the cursor keys and so on work as in the Sharp layout, so letters type capitals as on the real machines. Characters a model doesn't have do nothing. Sharp: each key is the Sharp key in its place, with the Sharp machine's own legends (for games and for typing as on the original keyboard). On the MZ-80A, MZ-700, MZ-800 and MZ-1500, Ctrl is CTRL (CTL), Esc is BREAK and Alt is GRAPH (GRPH). |
 | MZ-1X03 Joysticks | MZ-700/MZ-1500: connect two Sharp MZ-1X03 joysticks (MiSTer joysticks 1 and 2, read on E008). The MZ-800's own joystick ports (F0/F1) are always connected. |
 | MZ-800 Mode | The MZ-800 rear switch. In MZ-800 mode the IPL switches to MZ-800 graphics before starting a program loaded from tape; in MZ-700 mode (default) programs start in MZ-700 mode, which MZ-700 software needs. Reset after changing it. |
-| Region | Europe (default) or Japan, for the MZ-700. Japan is the Japanese MZ-700: its character generator, with katakana in place of the European lower case (the MZ-1500's CG, MAME `mz700fon.jpn`), its monitor ROM 1Z-009B (Japanese software prints through it: Tiny Xevious's side panel reads correctly only with it), and 60 Hz NTSC timing instead of 50 Hz PAL, so games run at their original speed. Japanese games and adventures need it (Donkey Gorilla, Namco's MZ-700 titles). The MZ-1500 was only sold in Japan and is always Japanese (60 Hz). Changing it resets the machine. |
+| Region | Europe (default) or Japan, for the MZ-700. Japan is the Japanese MZ-700: its character generator, with katakana in place of the European lower case (the MZ-1500's CG, MAME `mz700fon.jpn`), its monitor ROM 1Z-009B (Japanese software prints through it: Tiny Xevious's side panel reads correctly only with it), and the Japanese machine's timing: 60 Hz NTSC video instead of 50 Hz PAL, and the 8253 sound/timer counter clocked at 894.9 kHz instead of 1.1088 MHz (the Japanese monitors set their beep for it), so music plays at its pitch and games run at their original speed. Japanese games and adventures need it (Donkey Gorilla, Namco's MZ-700 titles). The MZ-1500 was only sold in Japan and is always Japanese (60 Hz). Changing it resets the machine. |
 
 ### Tape
 
@@ -57,11 +80,22 @@ A tape is either a single `.mzf` file (a 128-byte header followed by the program
 | Rewind Tape Image | Go back to the first program on the mounted image. |
 | Tape Image Start | Tape (default): the tape image plays from its first program, loaded as usual (`L`, `C` at the IPL menu, and so on). Direct: when an image is mounted, its first program goes straight into memory and starts, as Load Direct does, and the tape is left at the second program. A loader then reads the rest from the tape (Exolon, Knight Lore), and a BASIC tape starts BASIC with the program ready for `LOAD`. Not on the MZ-80B/2000. |
 | Tape Messages | On (default): for three seconds after the tape image moves, a line at the bottom of the picture says where it is, for example `TAPE 2/5 EXOLON` (the program now ready to play, out of five on the tape), `TAPE 6/5 END`, `TAPE SAVED 6 MYPROG` or `TAPE FULL`. |
+| Tape Details | Off (default). On: when a program is ready to play (on mounting, and after each load moves the tape on), the box shows its header for five seconds, as the old core's Tape Details page did: name, type (`01 MACHINE CODE`, `02`/`05 BASIC`, `03 DATA`), size, load and exec addresses, and `NOT A MACHINE CODE PROGRAM` for anything Load Direct can't start. Works with Tape Messages Off. |
+| Show Tape Details | Shows the details of the program at the tape position for five seconds (closes the OSD), whatever the two options above say. |
+| Auto Load Tape | Off (default). On: after a tape image is mounted, the core types the load command for you about two seconds after its first program is ready (and after any reset): `LOAD` on the MZ-80K/C/1200, `L` on the MZ-80A and MZ-700, `C` at the MZ-800 and MZ-1500 IPL menu. The MZ-80B/2000 IPL loads the tape by itself. Off with Tape Image Start: Direct, which starts the first program itself. |
 | Tape Buttons | Auto (play or record as the machine needs), Off, Play, Record. |
 | Fast Tape | Run the CPU (and the tape) faster while the tape is moving. Fastest (default) is the most the core can do (about 35 MHz); 2x to 16x are slower steps; Off is real speed, for the few programs whose loaders count time while the tape runs. |
 | Sharp ASCII Name | Convert tape file names between Sharp display codes and ASCII on save and/or load. |
 | Tape Sound | Off (default); Mix: the tape signal mixed in quietly while the tape plays or records, as the machines' own tape monitor would; Only: the tape signal instead of the machine's sound. |
 | Load Direct Start | Program (default): after Load Direct to RAM the machine boots for about 1.5 s, then the core puts back what the load wrote to 10F0-11FF (the boot uses that area), sets the memory map and jumps to the exec address with SP at 10F0, as after a tape load. Only machine-code files (MZF type 01) are started; BASIC programs and data just reset. Reset Only: just reset, then start it yourself with `J` and the exec address in the monitor; the MZF header is in RAM at 10F0 as after a tape load (load address at 10F0+20, exec at 10F0+22, low byte first). The MZ-80B and MZ-2000 always reset only. |
+
+**Using the tape image, step by step.**
+1. Pick the model in the OSD (Machine page), then on the Tape page mount the `.mzt` or `.mzf` as **Tape Image**. The cassette is now in the deck, at its first program. (With Tape Messages on you see `TAPE 1/3 NAME`; with Tape Details on, the program's header.)
+2. Load it as on the real machine: `L` Return at the MZ-700/MZ-80A monitor, `LOAD` Return on the MZ-80K/C/1200, `C` at the MZ-800/MZ-1500 IPL menu; the MZ-80B/2000 IPL loads it by itself. Or turn on **Auto Load Tape** and the core types it for you.
+3. When the machine has read a program and stopped the tape, the tape moves on: the next program is ready (`TAPE 2/3 NAME`). A loader that reads several parts gets them in order; a BASIC tape with programs after it is used by typing `LOAD` Return in BASIC for the next one.
+4. To start again from the first program, use **Rewind Tape Image** (or mount the image again). On the MZ-80B/2000 the deck's own fast forward, rewind and eject work too.
+6. Changing the machine model ejects the tape, the floppies and the Quick Disk: mount them again on the new machine. (Nothing starts playing on its own after a model change.)
+5. To run the first program without loading it from tape, use **Load Direct to RAM** for a single `.mzf`, or set **Tape Image Start: Direct** before mounting a multi-part tape (the first part starts at once, the rest stays on the tape).
 
 **Saving programs.** MiSTer can't grow a mounted file, so saving needs a tape image with spare room. Make a blank one with `tools/make_blank_tape.py` (default 1 MB, zero-filled), mount it as the Tape Image, and SAVE as usual (for example `S120012FF1200` then a file name in the MZ-700 monitor). Each program is appended after the last one. If the image is read-only or full, the save is skipped.
 
@@ -85,7 +119,7 @@ Writes go back to the image; mount a copy if you want to keep the original.
 | Display Type | Default follows the model (MZ-700/800 colour 40x25, MZ-80B/2000 mono 80x25, others mono 40x25). |
 | Scandoubler Fx | None (native 15 kHz), HQ2x or CRT scanlines 25/50/75%: doubles the picture to 31 kHz for VGA monitors. MiSTer.ini `forced_scandoubler=1` doubles it too. |
 | MZ-800 Border | Show the MZ-800 border colour around the picture (464 x 288 instead of 320 x 200). |
-| VRAM Wait | Insert the original wait states when the CPU accesses video RAM during the display (MZ-80A/1200/700). Some software relies on this timing. |
+| VRAM Wait | On (default): the original wait states when the CPU accesses video RAM while the screen is drawn. On the MZ-700 and MZ-1500 the CPU gets video RAM only in a short window at the start of each line's blanking (80 CPU clocks of 227 on PAL, 60 of 228 on NTSC), on every line, as the real GDG and Takeda's EmuZ-700/1500 do; so games that write the screen a lot run at their original speed (Tiny Xevious ran far too fast without it); Off: no waits (faster). MZ-700 and MZ-1500 only. |
 | Aspect ratio | Original, full screen, or the custom ratios from `MiSTer.ini`. |
 
 ### ROM and RAM
@@ -93,22 +127,22 @@ Writes go back to the image; mount a copy if you want to keep the original.
 | Option | Description |
 | ------ | ----------- |
 | User ROM / FDC ROM | Map the user ROM (E800) or FDC ROM (F000) for the current model. |
-| Load System ROM / RAM / CGROM | Replace the built-in combined monitor ROM, the initial RAM image or the character generator ROM. The files use the same layout as `rtl/software/roms/combined_*.rom`. The System ROM and CGROM you choose are remembered: the core loads them again every time it starts (and starts on them), until you choose another. A `boot.rom` in `games/SharpMZ` is loaded at start as well. (The keymap is built in; Keyboard Layout chooses PC or Sharp.) |
+| Load System ROM / RAM / CGROM | Replace a monitor ROM, the initial RAM image or a character generator ROM. A single ROM (one monitor, up to 4 KB; 16 KB for the MZ-800; 2 KB IPL for the MZ-80B/2000; one character set, 2 or 4 KB) replaces the **current model's** ROM, for its current 40/80-column mode and Region. A longer file is taken as a combined image in the layout of `rtl/software/roms/combined_*.rom`. The System ROM and CGROM you choose are remembered: the core loads them again every time it starts (into the model selected then), until you choose another, so set the model first. A `boot.rom` in `games/SharpMZ` is loaded at start as well. (The keymap is built in; Keyboard Layout chooses PC or Sharp.) |
 
-**Alternative monitor ROMs.** Load System ROM writes the file from the start of the core's 128 KB system ROM
-(`rtl/software/roms/combined_mrom.rom`), through the normal MiSTer file download. The first 4 KB of that ROM is the
-MZ-80K's 40-column monitor, so a 4 KB MZ-80K monitor (for example `80ktc.rom`, which starts "System Monitor") can be
-loaded as it is:
+**Alternative monitor ROMs.** Load System ROM puts a single monitor into the ROM slot of the model selected when it
+loads, so a 4 KB MZ-80K monitor (for example `80ktc.rom`, which starts "System Monitor") is loaded like this:
 
-1. Machine: MZ-80K, Display: 40 columns.
+1. Machine: MZ-80K (and the display mode you use: 40 or 80 columns have separate copies).
 2. ROM and RAM > Load System ROM, pick the `.rom` file.
 3. Press Reset (OSD Reset). The CPU keeps running the old monitor until the reset, so loading alone seems to do
    nothing.
 
-The new monitor stays until the core is loaded again: the ROM is block RAM set up from the RBF, and Reset doesn't
-restore it. To go back to SP-1002, reload the core (or load a copy of `combined_mrom.rom`). Loading a monitor again
-after that works the same way. It only replaces the 40-column monitor: with an 80-column display the MZ-80K uses
-the copy at 0x1000.
+Main remembers the file and loads it again at every core start; the core holds it until the saved settings arrive and
+then puts it into the model selected at that time, so keep the model you loaded it for, or load the original ROM back
+for that model. (A remembered 16 KB MZ-800 IPL is the exception: it lands at the start of the combined image.) Only one System ROM (and one CGROM) is
+remembered for the whole core: for replacement ROMs on several machines at once, build a combined image in the layout
+of `combined_mrom.rom` and load that. (Before 2026-10-17 a single monitor always landed in the MZ-80K's slot.)
+
 
 For other models, or the 80-column monitor, make a full image with the monitor at that model's offset and load it
 instead: `tools/make_monitor_rom.py mz80c monitor.rom out.rom [--80col]` (MZ-80K, 80C, 1200, 80A and 700; the

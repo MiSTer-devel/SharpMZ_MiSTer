@@ -61,6 +61,7 @@ module mz_qdisk
 
 	// MiSTer image slot
 	input         img_mounted,
+	input         eject,          // the machine model changed: the disk counts as removed until remounted
 	input         img_readonly,
 	input  [63:0] img_size,
 	output reg [31:0] sd_lba,
@@ -491,6 +492,10 @@ always @(posedge clk_sys) begin
 		end
 	end
 
+	if (eject & ~img_mounted) begin
+		mounted    <= 0;
+		valid      <= 0;
+	end
 	if (img_mounted) begin
 		mounted    <= |img_size;
 		wprot      <= img_readonly;

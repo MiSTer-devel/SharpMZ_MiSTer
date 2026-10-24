@@ -41,6 +41,7 @@ module mz_fdc
 
 	// MiSTer image slots, one per drive
 	input   [1:0] img_mounted,
+	input         eject,          // the machine model changed: both drives count as empty until remounted
 	input         img_readonly,
 	input  [63:0] img_size,
 	output [31:0] sd_lba[2],
@@ -68,6 +69,7 @@ always @(posedge clk_sys) begin
 			mounted[i] <= |img_size;
 			wprot[i]   <= img_readonly;
 		end
+		else if (eject) mounted[i] <= 0;
 end
 
 // With no image mounted in Auto mode the interface is absent, so the IPL doesn't stop at

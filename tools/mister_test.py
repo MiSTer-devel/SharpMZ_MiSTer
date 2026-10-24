@@ -2,7 +2,7 @@
 """Hardware test suite for the SharpMZ core on a MiSTer.
 
 Each test is an MGL that loads the core with its own <setname>, so it gets its own config file
-(<setname>_v5.CFG) holding the OSD settings (model etc.). The MGL mounts the tape/disk images
+(<setname>_v6.CFG) holding the OSD settings (model etc.). The MGL mounts the tape/disk images
 and resets; this script then types keys through a uinput keyboard (tools/mister_keys.py on the SD card) and takes
 screenshots with Main's `screenshot` command, then copies them back.
 
@@ -29,15 +29,17 @@ TESTS = os.path.join(ROOT, 'verilator/tests/mz800')
 MZF = os.path.join(ROOT, 'rtl/software/mzf')
 FAT = '/media/fat'
 HW = f'{FAT}/games/SharpMZ/HWTest'
-CFG_VER = '_v5'           # CONF_STR "v,5"
+CFG_VER = '_v6'           # CONF_STR "v,6"
 
 # Model menu entries (status[38:35]), in CONF_STR order.
-MODEL = {'MZ80A': 0, 'MZ80K': 1, 'MZ80C': 2, 'MZ1200': 3, 'MZ700': 4, 'MZ80B': 5, 'MZ2000': 6, 'MZ800': 7, 'MZ1500': 8}
+MODEL = {'MZ80K': 0, 'MZ80C': 1, 'MZ80A': 2, 'MZ1200': 3, 'MZ80B': 4, 'MZ2000': 5, 'MZ700': 6, 'MZ800': 7, 'MZ1500': 8}
+if os.environ.get('MODEL_ORDER') == 'old':   # builds before 20261016 (the old Model order)
+    MODEL = {'MZ80A': 0, 'MZ80K': 1, 'MZ80C': 2, 'MZ1200': 3, 'MZ700': 4, 'MZ80B': 5, 'MZ2000': 6, 'MZ800': 7, 'MZ1500': 8}
 
 
 # The tests' baseline, where it differs from the core's defaults: Keyboard Layout Sharp (KEYS below types by position),
 # Fast Tape Off (the waits were made at real speed), Tape Messages Off (the overlay would change screenshots).
-BASELINE = 'Keyboard Layout=Sharp, Fast Tape=Off, Tape Messages=Off'
+BASELINE = 'Keyboard Layout=Sharp, Fast Tape=Off, Tape Messages=Off, Tape Details=Off, Auto Load Tape=Off'
 
 
 def status_bytes(model, opts=()):
@@ -56,9 +58,10 @@ MZ800_MODE = osd('MZ-800 Mode=MZ-800')[0]   # rear switch in the MZ-800 position
 # mounting, then steps: ('wait', s) / ('type', text) / ('shot', label).
 # kind: 's' = image slot (S0 tape, S1/S2 floppy), 'f' = file load (F1 tape to CMT, F2 direct).
 T = []
-def test(name, model, desc, files=(), opts=(), reset=False, steps=(), late=()):
+def test(name, model, desc, files=(), opts=(), reset=False, steps=(), late=(), remember=()):
     # late: [(kind, index, source, delay)] mounted by the MGL after the reset, e.g. a disk's side B.
-    T.append(dict(name=name, model=model, desc=desc, files=list(files), opts=list(opts), reset=reset, steps=list(steps), late=list(late)))
+    T.append(dict(name=name, model=model, desc=desc, files=list(files), opts=list(opts), reset=reset, steps=list(steps), late=list(late),
+                  remember=list(remember)))
 
 test('T01', 'MZ80K', 'MZ-80K boots to the SP-1002 monitor', steps=[('wait', 4), ('shot', 'boot')])
 test('T02', 'MZ80A', 'MZ-80A boots to the SA-1510 monitor', steps=[('wait', 4), ('shot', 'boot')])
@@ -151,7 +154,7 @@ test('W01', 'MZ1500', 'MZ-1500 Quick Disk write: BASIC INIT, SAVE, LOAD', files=
             ('wait', 3), ('shot', 'loaded'), ('fetch', 0)])
 
 # A tape installer: Druaga no Tou loads its DATA file from tape and copies the game onto a blank Quick Disk.
-test('W02', 'MZ1500', 'MZ-1500 tape installer onto a blank Quick Disk: Druaga no Tou',
+test('W02', 'MZ1500', 'MZ-1500 Druaga tape with a blank Quick Disk: not an installer, asks for QD side B, then QD:Unformat err (as mz800emu)',
      files=[('s', 0, f'{M15}/Druaga no Tou (1984)(Dempa Shimbunsha)(Namco)(Masami Nakamura) Side A.mzt'), ('s', 3, 'gen:qd_blank')],
      opts=[FAST_TAPE(6)], reset=True,
      steps=[('wait', 8), ('shot', 'menu'), ('type', 'C'), ('wait', 5), ('type', 'C'), ('wait', 10), ('shot', 'loading'),
@@ -261,6 +264,28 @@ test('F04', 'MZ2000', 'MZ-2000 Boot Reset: TF-DOS disk mounted at the IPL, reset
 
 # OSD Tape Messages: the overlay names the record the tape image is at (TAPE 1/2 S-BASIC on mounting, TAPE 2/2 R.P.S.
 # once BASIC is in and the tape has stopped).
+test('L17', 'MZ700', 'Tape Details: on mounting, record 1 (S-BASIC, 01 machine code, 6BA0, 1200, 7D79); after L, record 2 (02 BASIC, not machine code)',
+     files=[('s', 0, 'gen:td_basic')], opts=[FAST_TAPE(6)] + osd('Tape Details=On'), reset=True,
+     steps=[('wait', 1), ('shot', 'rec1'), ('type', 'L\n')] + [s for k in range(12) for s in (('wait', 0.6), ('shot', f'{k:02d}'))])
+# Auto Load Tape: nothing is typed by the test; the core types L / LOAD / C itself after the tape is mounted.
+test('L18', 'MZ700', 'Auto Load Tape: the core types L, BASIC 1Z-013B loads from the tape image',
+     files=[('s', 0, 'gen:td_basic')], opts=[FAST_TAPE(6)] + osd('Auto Load Tape=On'), reset=True,
+     steps=[('wait', 30), ('shot', 'basic')])
+test('L19', 'MZ800', 'Auto Load Tape: the IPL gets C, Cauldron II loads', files=[('s', 0, f'{GAMES800}/Cauldron.mzf')],
+     opts=[FAST_TAPE(5)] + osd('Auto Load Tape=On'), reset=True, steps=[('wait', 55), ('shot', 'game')])
+test('L20', 'MZ1500', 'Auto Load Tape: the MZ-1500 IPL gets C, Pac-Man loads',
+     files=[('s', 0, f'{M15}/Pac-Man (1984)(Dempa Shimbunsha)(Namco)(Noboru Gankou).mzt')],
+     opts=[FAST_TAPE(6)] + osd('Auto Load Tape=On'), reset=True, steps=[('wait', 45), ('shot', 'game')])
+TESTERS16 = f'{SW}/testers-2026-10-16'
+test('S04', 'MZ80K', 'MZ-80K SP-5030 + Supergolf with Tape Details: after BASIC loads, record 2 is SUPERGOLF, type 02 (the stray byte skipped)',
+     files=[('s', 0, f'{TESTERS16}/SP-5030 + Supergolf.mzt')], opts=osd('Fast Tape=Fastest, Keyboard Layout=PC, Tape Details=On'), reset=True,
+     steps=[('wait', 3), ('type', 'LOAD\n')] + [s for k in range(10) for s in (('wait', 4), ('shot', f'{k:02d}'))])
+for n, ft in (('S01', 'Off'), ('S02', 'Fastest'), ('S03', 'Fastest')):    # EeDee: BASIC SP-5030 then Supergolf on one tape image (MZ-80K)
+    test(n, 'MZ80K', f'MZ-80K tape image SP-5030 + Supergolf, Fast Tape {ft}: LOAD (BASIC), LOAD (the next program), RUN',
+         files=[('s', 0, f'{TESTERS16}/SP-5030 + Supergolf.mzt')], opts=osd(f'Fast Tape={ft}, Keyboard Layout=PC'), reset=True,
+         steps=[('wait', 3), ('type', 'LOAD\n'), ('wait', 150 if ft == 'Off' else 40), ('shot', 'basic'),
+                ('type', 'LOAD\n'), ('wait', 200 if ft == 'Off' else 240 if n == 'S03' else 60), ('shot', 'loaded'), ('type', 'RUN\n'),
+                ('wait', 10), ('shot', 'run')])
 test('L16', 'MZ700', 'Tape Messages overlay: after L loads BASIC, TAPE 2/2 R.P.S. at the bottom for 3 s',
      files=[('s', 0, 'gen:td_basic')], opts=[FAST_TAPE(6)] + osd('Tape Messages=On'), reset=True,
      steps=[('type', 'L\n')] + [s for k in range(24) for s in (('wait', 0.3), ('shot', f'{k:02d}'))])
@@ -401,6 +426,27 @@ test('Q06', 'MZ1500', 'MZ-1500 Batten Tanuki: side B, Return, then F1 at "F1 -- 
      late=[('s', 3, f'{TESTERS}/Batten Tanuki no Daibouken (Side B)(1986)(Tecno Soft).qdf', 14)], reset=True,
      steps=[('wait', 4), ('type', 'Q'), ('wait', 14), ('type', '\n'), ('wait', 10), ('shot', 'prompt'), ('keys', '59'),
             ('wait', 8), ('shot', 'f1')])
+test('Q10', 'MZ1500', 'MZ-1500 Batten Tanuki in play: 10 s of its sound (Danjuro: a constant buzz behind the game)',
+     files=[('s', 3, f'{TESTERS}/Batten Tanuki no Daibouken (Side A)(1986)(Tecno Soft).qdf')],
+     late=[('s', 3, f'{TESTERS}/Batten Tanuki no Daibouken (Side B)(1986)(Tecno Soft).qdf', 14)], reset=True,
+     steps=[('wait', 4), ('type', 'Q'), ('wait', 14), ('type', '\n'), ('wait', 10), ('keys', '59'), ('wait', 4),
+            ('shot', 'game'), ('audio', ('game', 10)), ('shot', 'after')])
+test('X07', 'MZ700', 'MZ-700 Region Japan: Snake & Snake by Load Direct (the title, as in Europe)',
+     files=[('f', 2, yb('1982', 'MZ-700', 'Snake & Snake (1982)(Tecno Soft).mzf'))], opts=osd('Region=Japan'), reset=True,
+     steps=[('wait', 12), ('shot', 'title')])
+# R01: Main reloads the remembered Load System ROM (config/R01.f3, written before the run: an MGL can't load files from
+# an OSD sub-page) at core start, into the model selected then.
+# R01: Main reloads the remembered Load System ROM (config/R01.f3, written before the run: an MGL can't load files from
+# an OSD sub-page) at core start, into the model selected then.
+test('R03', 'MZ80K', 'Remembered System ROM (config/R03.f3, the TEST-X 1Z-013A file) with the MZ-80K: where it lands (diagnostic)',
+     reset=True, steps=[('wait', 4), ('shot', 'boot')])
+test('R01', 'MZ700', 'Remembered System ROM (one MZ-700 monitor, 1Z-013A with banner TEST-X): the MZ-700 starts on it (it used to land on the MZ-80K)',
+     remember=[(3, os.path.join(ROOT, 'verilator/tests/mz700/test_monitor_1z013a_testx.rom'))], reset=True,
+     steps=[('wait', 4), ('shot', 'boot')])
+for n, r in (('X05', 'Japan'), ('X06', 'Europe')):   # Danjuro: Snake & Snake stopped loading in NTSC with 20261015
+    test(n, 'MZ700', f'MZ-700 Region {r}: Snake & Snake (Tecno Soft) from the tape image (L)',
+         files=[('s', 0, yb('1982', 'MZ-700', 'Snake & Snake (1982)(Tecno Soft).mzf'))], opts=[FAST_TAPE(0)] + osd(f'Region={r}'),
+         reset=True, steps=[('wait', 3), ('type', 'L\n'), ('wait', 25), ('shot', 'a'), ('wait', 15), ('shot', 'b')])
 test('Q07', 'MZ1500', 'MZ-1500 Nobunaga no Yabou: F1 loads TITLE, which wants side B (KOEI ...): side B mounted, the game',
      files=[('s', 3, f'{TESTERS}/Nobunaga no Yabou (Side A)(1984)(Koei).qdf')],
      late=[('s', 3, f'{TESTERS}/Nobunaga no Yabou (Side B)(1984)(Koei).qdf', 75)], reset=True,
@@ -468,6 +514,9 @@ def sh(cmd, **kw):
 # HDMI capture card for audio steps (it shows mister126's output; tools on misterubuntu).
 CAPTURE_HOST = os.environ.get('CAPTURE_HOST', 'misterubuntu')
 CAPTURE_PCM = os.environ.get('CAPTURE_PCM', 'plughw:CARD=U25773,DEV=0')
+# MiSTerKVMS: when its CLI is installed, audio comes from its capture server's stream (the server holds the card).
+KVMS_CLI = os.environ.get('KVMS_CLI', '/Applications/MiSTerKVMS.app/Contents/MacOS/misterkvms-cli')
+KVMS_STREAM = os.environ.get('KVMS_STREAM', 'mkvm://10.0.2.128/Mister%20126')
 REFS = os.path.join(ROOT, 'tools/mister_refs.json')   # md5 of each screenshot from a good run (--update-refs)
 # One ssh connection for the whole run (each step was a new connection, about half a second).
 SSH_OPTS = ['-o', 'ControlMaster=auto', '-o', 'ControlPath=/tmp/mister_test_%r@%h:%p', '-o', 'ControlPersist=120']
@@ -759,6 +808,11 @@ def main():
         if ('capture', 'start') in t['steps']:   # listen on the UART before the core (and the program) starts
             m.ssh('killall cat 2>/dev/null; stty -F /dev/ttyS1 9600 raw -echo; '
                   '(nohup cat /dev/ttyS1 > /tmp/prn_capture.bin 2>/dev/null &); true')
+        m.ssh(f'rm -f {FAT}/config/{t["name"]}.f[0-9]')
+        for idx, src in t['remember']:          # Main's remembered file (FC) for the test's setname: loaded at core start
+            dst = f'{HW}/files/{t["name"]}_fc{idx}{os.path.splitext(src)[1]}'
+            m.put(src, dst)
+            m.ssh(f'printf "%s" "{dst[len(FAT) + 1:]}" > {FAT}/config/{t["name"]}.f{idx}')
         m.cmd(f'load_core {HW}/mgl/{t["name"]}.mgl')
         time.sleep(4 + 2 * len(t['files']) + (2 if t['reset'] else 0))
         shots = []
@@ -801,13 +855,19 @@ def main():
                     ok = got == want
                     print(f'   printer bytes {"match" if ok else "DIFFER"} {arg}' + ('' if ok else f'\n     got  {got}\n     want {want}'))
                     results.append((t['name'], f'printer bytes vs {arg}: {"match" if ok else "DIFFER"}', '', ok))
-            elif op == 'audio':             # record the HDMI audio from the capture card (on CAPTURE_HOST) for 4 s
-                wav = f'/tmp/{t["name"]}_{arg}.wav'
-                subprocess.run(['ssh', CAPTURE_HOST, f'arecord -q -D {CAPTURE_PCM} -f S16_LE -c 2 -r 48000 -d 4 {wav}'],
-                               check=True)
-                local = os.path.join(a.out, 'shots', os.path.basename(wav))
+            elif op == 'audio':             # record the HDMI audio from the capture card: ('audio', label[, seconds])
+                label, secs = (arg, 4) if isinstance(arg, str) else arg
+                local = os.path.join(a.out, 'shots', f'{t["name"]}_{label}.wav')
                 os.makedirs(os.path.dirname(local), exist_ok=True)
-                subprocess.run(['scp', '-q', f'{CAPTURE_HOST}:{wav}', local], check=True)
+                if os.path.exists(KVMS_CLI):
+                    subprocess.run([KVMS_CLI, '--stream', KVMS_STREAM, 'record', f'{secs}s', local],
+                                   check=True, capture_output=True)
+                else:
+                    wav = f'/tmp/{t["name"]}_{label}.wav'
+                    subprocess.run(['ssh', CAPTURE_HOST, f'arecord -q -D {CAPTURE_PCM} -f S16_LE -c 2 -r 48000 -d {secs} {wav}'],
+                                   check=True)
+                    subprocess.run(['scp', '-q', f'{CAPTURE_HOST}:{wav}', local], check=True)
+                arg = label
                 lvl = subprocess.run(['python3', os.path.join(ROOT, 'verilator/tests/wav_stereo.py'), local, '0.5', '3'],
                                      capture_output=True, text=True).stdout.strip()
                 print(f'   audio {arg}: {lvl} (Hz, peak-to-peak of 65536)')

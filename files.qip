@@ -1,6 +1,7 @@
 set_global_assignment -name SYSTEMVERILOG_FILE SharpMZ.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_image.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_osd.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_autotype.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/sharpmz_top.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/wd1793.sv
 set_global_assignment -name VERILOG_FILE rtl/wd1793_mem.v

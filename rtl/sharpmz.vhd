@@ -139,6 +139,7 @@ entity sharpmz is
         CPU_RD_n              : out    std_logic;
         CMT_CTRL              : out    std_logic_vector(7 downto 0);            -- CMT_BUS_IN (machine to deck), for debug.
         CMT_DEBUG             : out    std_logic_vector(31 downto 0);           -- cmt.vhd DEBUG_STATUS_LEDS, for debug.
+        TAPE_CLEAR            : in     std_logic;                               -- Pulse: the tape image was removed (cmt.vhd).
         --------------------                   Machine configuration              ------------------------------
         CFG_MODEL             : in     std_logic_vector(7 downto 0);            -- See mctrl.vhd for the bit layout.
         CFG_DISPLAY           : in     std_logic_vector(7 downto 0);
@@ -533,6 +534,7 @@ component cmt
         -- Cassette magnetic tape signals.
         CMT_BUS_OUT          : out std_logic_vector(CMT_BUS_OUT_WIDTH);
         CMT_BUS_IN           : in  std_logic_vector(CMT_BUS_IN_WIDTH);
+        TAPE_CLEAR           : in  std_logic;                            -- Pulse: the tape image was removed, drop the record held.
 
         -- HPS Interface
         IOCTL_DOWNLOAD       : in  std_logic;                            -- HPS Downloading to FPGA.
@@ -944,6 +946,7 @@ begin
             -- Cassette magnetic tape signals.
             CMT_BUS_OUT      => MZ_CMT_BUS_OUT,                          -- Output is fed from CMT into MCTRL and MZ..
             CMT_BUS_IN       => MZ_CMT_BUS_IN,                           -- Input is fed from MCTRL/MZ into CMT.
+            TAPE_CLEAR       => TAPE_CLEAR,
 
             -- HPS Interface
             IOCTL_DOWNLOAD   => MZ_IOCTL_DOWNLOAD,                       -- HPS Downloading to FPGA.

@@ -58,6 +58,7 @@ entity cmt is
         -- Cassette magnetic tape signals.
         CMT_BUS_OUT          : out std_logic_vector(CMT_BUS_OUT_WIDTH);
         CMT_BUS_IN           : in  std_logic_vector(CMT_BUS_IN_WIDTH);
+        TAPE_CLEAR           : in  std_logic;                            -- Pulse: the tape image was removed, drop the record held.
 
         -- HPS Interface
         IOCTL_DOWNLOAD       : in  std_logic;                            -- HPS Downloading to FPGA.
@@ -134,6 +135,7 @@ signal PLAY_READY_CLR_LAST   :     std_logic;                                -- 
 signal PLAY_READY_CLR_CNT    :     unsigned(21 downto 0);                    -- 2 second timer from motor being stopped to PLAY_READY being cleared.
 signal PLAY_READY            :     std_logic;                                -- Cache loaded, playback ready to commence.
 signal PLAY_READY_CLR        :     std_logic;                                -- Clear PLAY_READY signal.
+signal PLAY_REC_DONE         :     std_logic;                                -- The record in the buffer has been played out; a motor restart must not replay it.
 signal PLAY_BUTTON           :     std_logic;                                -- Virtual Play button.
 signal PLAYING               :     std_logic_vector(2 downto 0);             -- Playing state, 3 cycle, 0 = inactive, 1 = active, msb = most recent.
 signal RECORD_READY          :     std_logic;                                -- Record buffer full (data received from MZ). Active = 1
@@ -597,7 +599,11 @@ begin
             -- record (a 1.3 KB BASIC program after BASIC itself) was written entirely inside that window, every write
             -- was overridden by the clear, the quiet timer never started and the record never became ready.
             PLAY_READY_CLR_LAST                     <= PLAY_READY_CLR;
-            if PLAY_READY_CLR = '1' and PLAY_READY_CLR_LAST = '0' then
+            if TAPE_CLEAR = '1' then                                     -- The tape image was removed: nothing to play.
+                PLAY_READY                          <= '0';
+                PLAY_READY_SET_CNT                  <= 0;
+
+            elsif PLAY_READY_CLR = '1' and PLAY_READY_CLR_LAST = '0' then
                 PLAY_READY                          <= '0';
                 PLAY_READY_SET_CNT                  <= 0;
 
@@ -1076,6 +1082,7 @@ begin
         if RST = '1' then 
             PLAY_READY_CLR                          <= '0';
             PLAY_READY_CLR_CNT                      <= (others => '0');
+            PLAY_REC_DONE                           <= '0';
             TAPE_READ_STATE                         <=  0;
             TAPE_READ_SEQ                           <= "000";
             PLAY_READY_PLAYL                        <= '0';
@@ -1088,6 +1095,11 @@ begin
             if CLKBUS(CKENCPU) = '1' then
 
                 PLAY_READY_PLAYL                    <= PLAY_READY;
+
+                -- A new record (or none) in the buffer: it has not been played.
+                if PLAY_READY = '0' then
+                    PLAY_REC_DONE                       <= '0';
+                end if;
 
                 -- 2 second after the tape motor goes off clear the PLAY_READY signal, indicating cache tape is no
                 -- longer in use.
@@ -1118,7 +1130,12 @@ begin
                     -- Stopped after the header, the record waits for its data block however long the motor stays off
                     -- (the MZ-2000 BASIC monitor prints LOADING and restarts the deck later than the timer below);
                     -- only a finished record starts the timer that releases it for the next one.
-                    if XMIT_RAM_TYPE = '0' and TAPE_READ_STATE > 6 and TAPE_READ_STATE < 15 then
+                    -- Playing also stops when PLAY_READY drops (the record released with the motor still on): that is
+                    -- not a motor stop, and restarting the timer then, with PLAY_READY_CLR still high, left no edge to
+                    -- release the next record (Cybernoid stopped before its third program file).
+                    if PLAY_REC_DONE = '1' or PLAY_READY = '0' then
+                        null;
+                    elsif XMIT_RAM_TYPE = '0' and TAPE_READ_STATE > 6 and TAPE_READ_STATE < 15 then
                         TAPE_READ_STATE                 <= 14;
                     -- Stopped in the gap before the data block (the MZ-2000 monitor stops the deck after the header
                     -- while the gap is already playing): play the data block from its gap on the next PLAY.
@@ -1127,15 +1144,22 @@ begin
                     else
                         TAPE_READ_STATE                 <= 15;
                         PLAY_READY_CLR_CNT              <= to_unsigned(1, 22);
+                        PLAY_REC_DONE                   <= '1';
                     end if;
     
                 -- Change in play state, start fsm to play out the ram contents when the HPS upload has completed.
+                -- A record already played out is not played again when the motor restarts before the tape image has
+                -- replaced it (a real tape runs on into the next file): the release timer keeps running and state 15
+                -- plays the next record when it arrives. (Cybernoid's loader stops the motor after each file and
+                -- restarts it at once for the next: it read its first program file again.)
                 elsif PLAYING = "110" then
-                    if TAPE_READ_STATE = 15 then
+                    if TAPE_READ_STATE = 15 and PLAY_REC_DONE = '0' then
                         TAPE_READ_STATE                 <= 0;
                         XMIT_RAM_TYPE                   <= '0';
                     end if;
-                    PLAY_READY_CLR_CNT                  <= (others => '0');
+                    if PLAY_REC_DONE = '0' then
+                        PLAY_READY_CLR_CNT              <= (others => '0');
+                    end if;
     
                 -- If playing, run the FSM.
                 elsif PLAYING = "111" then
@@ -1276,6 +1300,7 @@ begin
                                     -- The record is finished with the motor still on: release it as a motor stop would
                                     -- (PLAY_READY drops after the timer and the tape image loads the next record).
                                     PLAY_READY_CLR_CNT  <= to_unsigned(1, 22);
+                                    PLAY_REC_DONE       <= '1';
                                 end if;
         
                             -- Clear the Play Ready strobe and wait at this state until external actions reset the state.

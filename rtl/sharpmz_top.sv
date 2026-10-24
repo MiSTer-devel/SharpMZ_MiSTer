@@ -94,6 +94,8 @@ wire  [1:0] tape_msg_kind;
 wire  [7:0] tape_rec_total;
 wire[127:0] tape_rec_name;
 wire        tape_rec_qd;                            // the record is a Quick Disk BASIC file (tape_osd: "QD:")
+wire  [7:0] tape_rec_type;                          // its header (tape_osd: Tape Details)
+wire [15:0] tape_rec_size, tape_rec_load, tape_rec_exec;
 wire        warm_reset_user;                        // the resets that also reset the tape engine (below)
 reg         tape_ram_load_d = 0;
 wire        ds_bus_active, ds_bus_wr, ds_inj_go;   // Load Direct start (direct_start, below)
@@ -110,13 +112,14 @@ assign hps_ioctl_wait = hps_ioctl_download & tape_b_busy;   // Only while a byte
 function automatic [2:0] mz_model_code(input [3:0] menu_sel);
 	begin
 		case(menu_sel)
-			4'd0: mz_model_code = 3'd3; // MZ80A
-			4'd1: mz_model_code = 3'd0; // MZ80K
-			4'd2: mz_model_code = 3'd1; // MZ80C
+			// OSD order by date (EeDee): MZ-80K, MZ-80C, MZ-80A, MZ-1200, MZ-80B, MZ-2000, MZ-700, MZ-800, MZ-1500.
+			4'd0: mz_model_code = 3'd0; // MZ80K
+			4'd1: mz_model_code = 3'd1; // MZ80C
+			4'd2: mz_model_code = 3'd3; // MZ80A
 			4'd3: mz_model_code = 3'd2; // MZ1200
-			4'd4: mz_model_code = 3'd4; // MZ700
-			4'd5: mz_model_code = 3'd6; // MZ80B
-			4'd6: mz_model_code = 3'd7; // MZ2000
+			4'd4: mz_model_code = 3'd6; // MZ80B
+			4'd5: mz_model_code = 3'd7; // MZ2000
+			4'd6: mz_model_code = 3'd4; // MZ700
 			4'd8: mz_model_code = 3'd4; // MZ1500: an MZ-700 plus cfg_mz1500
 			default: mz_model_code = 3'd5; // MZ800
 		endcase
@@ -169,6 +172,20 @@ endfunction
 
 wire [2:0] cfg_model = mz_model_code(status[38:35]);
 wire       cfg_mz1500 = (status[38:35] == 4'd8);
+
+// Changing the machine model ejects the media (Danjuro): the tape image, the floppies and the Quick Disk count as
+// removed until they are mounted again, so nothing plays on the new machine by itself. Not in the first 3 s after a
+// cold start, while Main sends the saved settings and then mounts the files an MGL names.
+reg  [3:0] model_q = 0;
+reg [27:0] settle = 0;
+reg        media_eject = 0;
+always @(posedge clk_sys) begin
+	model_q     <= status[38:35];
+	media_eject <= 0;
+	if (reset) settle <= 28'd0;
+	else if (settle != 28'hFFFFFFF && settle < 28'(CLK_HZ * 3)) settle <= settle + 1'd1;
+	else if (status[38:35] != model_q) media_eject <= 1;
+end
 wire [2:0] cfg_display = mz_display_type(status[8:7], cfg_model);
 wire [1:0] cfg_tape_buttons = mz_tape_buttons(status[25:24]);
 wire [2:0] cfg_fast_tape = mz_fast_tape(status[23:21]);
@@ -177,7 +194,7 @@ wire       fdc_present;
 wire [7:0] cfg_fdcrom  = (status[29] | cfg_mz1500 | (fdc_present & (cfg_model == 3'b100 | cfg_model == 3'b011))) ? (8'd1 << cfg_model) : 8'd0;  // MZ-700 / MZ-80A: the interface brings its ROM at F000 (MZ-1E05 / the MZ-80A interface ROM; the MZ-1500 has its own F000 ROM)
 
 wire [7:0] cfg_reg0_model   = {5'd0, cfg_model};
-wire [7:0] cfg_reg1_display = {1'b0, status[18], 1'b0, 1'b0, 1'b0, cfg_display};  // video and graphics always on  // PCG is software controlled (E010-E012).
+wire [7:0] cfg_reg1_display = {1'b0, ~status[18] & (cfg_model == 3'd4), 1'b0, 1'b0, 1'b0, cfg_display};  // VRAM Wait (default On): the MZ-700/1500 GDG wait. Off on the other models, as before (the MZ-800's graphics wait, the MZ-80A's one-cycle wait).  // PCG is software controlled (E010-E012).
 wire [7:0] cfg_reg2_display = 8'd3;                    // Native timing (the video is native-only).
 wire       cfg_japan = status[56] & (cfg_model == 3'b100) & ~cfg_mz1500;   // OSD Region: Japan (MZ-700: Japanese CG, monitor 1Z-009B, 60 Hz)
 wire [7:0] cfg_reg3_display = {3'd0, cfg_japan, cfg_mz1500, status[32], 2'b00};   // 4: Japanese MZ-700. 3: MZ-1500. 2: MZ-800 rear mode switch (0 = MZ-700, as mz800emu's default; 1 = MZ-800).
@@ -208,6 +225,18 @@ assign rom_slot = active_file_slot == FILE_SYSROM || active_file_slot == FILE_CG
 reg [15:0] mzf_size = 0;
 reg [15:0] mzf_load_addr = 0;
 reg [7:0] direct_load_reset_ctr = 0;
+// Staged ROM bookkeeping and its copy engine (below, after the download address map).
+reg        dl_early = 0;                      // this download started in the first 3 s
+reg        st_rom = 0, st_rom_comb = 0, st_cg = 0, st_cg_comb = 0;
+reg        rl_active = 0, rl_rd = 0, rl_wr = 0, rl_cg = 0;
+reg [24:0] rl_addr;
+reg  [7:0] rl_dout;
+reg [12:0] rl_i;
+reg  [2:0] rl_ph;
+reg [24:0] rl_src, rl_dst;
+reg [12:0] rl_len;
+reg       rl_active_d = 0;
+always @(posedge clk_sys) rl_active_d <= rl_active;
 
 always @(posedge clk_sys) begin
 	hps_ioctl_download_d <= hps_ioctl_download;
@@ -220,7 +249,7 @@ always @(posedge clk_sys) begin
 
 	tape_ram_load_d <= tape_ram_load;
 	if((hps_ioctl_download_d && !hps_ioctl_download && (active_file_slot == FILE_TAPE_DIRECT || rom_slot)) ||
-	   (tape_ram_load_d && !tape_ram_load)) begin
+	   (tape_ram_load_d && !tape_ram_load) || (rl_active_d && !rl_active)) begin     // also after a staged ROM is moved
 		direct_load_reset_ctr <= 8'd64;
 	end
 	else if(direct_load_reset_ctr != 0) begin
@@ -248,13 +277,60 @@ wire        mzf_direct_wr_valid = active_file_slot != FILE_TAPE_DIRECT ||
                                   mzf_size == 16'd0 ||
                                   hps_ioctl_addr < mzf_direct_end;
 
+// Load System ROM / Load CGROM: a single ROM goes into the current model's slot (Danjuro, EeDee: a monitor loaded for
+// another machine used to land at 0, the MZ-80K's monitor and character set, and Main reloads it at every start).
+// The first ROM_AREA bytes of the file go to the model's slot; a longer file is a combined image (the old way) and the
+// rest lands at its own place, which rewrites the current model's slot with its own part (only the MZ-80K's slot keeps
+// the built-in ROM then). Slots: rtl/sharpmz.vhd MROM_BANK (2 KB banks) and video_vc.vhd CG_BANK (2 KB banks).
+wire        cfg_80col = (cfg_display == 3'b001) | (cfg_display == 3'b011);
+// Main sends the remembered System ROM / CGROM at core start before the saved settings, while the status word still says
+// MZ-80K (the test R03: a remembered MZ-700 monitor started on the MZ-80K). So a ROM that arrives in the first 3 s goes
+// to a staging area (system ROM banks 54-55, 1B000; CG banks 12-13, 6000), and once the settings are in the copy engine
+// below moves it to the model selected then; a file longer than 4 KB is a combined image and its first 4 KB goes back
+// to the start (the MZ-80K). A 16 KB MZ-800 IPL remembered this way lands at the start as before.
+wire        rom_early = settle < 28'(CLK_HZ * 3);
+reg   [5:0] mrom_base;          // first 2 KB bank of the model's monitor
+reg  [14:0] mrom_area;          // its size
+reg   [3:0] cg_base;
+reg  [12:0] cg_area;
+always @(posedge clk_sys) begin
+	mrom_area <= 15'h1000;
+	case (cfg_model)
+		3'd0: mrom_base <= cfg_80col ? 6'd2  : 6'd0;    // MZ-80K
+		3'd1: mrom_base <= cfg_80col ? 6'd9  : 6'd7;    // MZ-80C
+		3'd2: mrom_base <= cfg_80col ? 6'd16 : 6'd14;   // MZ-1200
+		3'd3: mrom_base <= cfg_80col ? 6'd23 : 6'd21;   // MZ-80A
+		3'd4: mrom_base <= cfg_mz1500 ? 6'd35 : (cfg_japan & ~cfg_80col) ? 6'd52 : cfg_80col ? 6'd30 : 6'd28;  // MZ-1500, MZ-700
+		3'd5: begin mrom_base <= 6'd56; mrom_area <= 15'h4000; end                                         // MZ-800
+		3'd6: begin mrom_base <= cfg_80col ? 6'd43 : 6'd42; mrom_area <= 15'h0800; end                     // MZ-80B
+		default: begin mrom_base <= cfg_80col ? 6'd48 : 6'd47; mrom_area <= 15'h0800; end                  // MZ-2000
+	endcase
+	cg_area <= 13'h0800;
+	case (cfg_model)
+		3'd0: cg_base <= 4'd0;
+		3'd1: cg_base <= 4'd1;
+		3'd2: cg_base <= 4'd2;
+		3'd3: cg_base <= 4'd3;
+		3'd4: begin cg_base <= (cfg_mz1500 | cfg_japan) ? 4'd10 : 4'd4; cg_area <= 13'h1000; end
+		3'd5: begin cg_base <= 4'd6; cg_area <= 13'h1000; end
+		3'd6: cg_base <= 4'd8;
+		default: cg_base <= 4'd9;
+	endcase
+end
+
 function automatic [24:0] mz_ioctl_addr_map(
 	input [5:0] slot,
 	input [26:0] addr,
-	input [15:0] load_addr
+	input [15:0] load_addr,
+	input [5:0] mbase, input [14:0] marea,
+	input [3:0] cbase, input [12:0] carea,
+	input early
 );
 	begin
 		case(slot)
+			FILE_SYSROM:
+				mz_ioctl_addr_map = early ? ((addr < 27'h1000) ? (25'h001B000 + addr[24:0]) : addr[24:0]) :
+				                    (addr < {12'd0, marea}) ? ({8'd0, mbase, 11'd0} + addr[24:0]) : addr[24:0];
 			FILE_TAPE_CMT:
 				mz_ioctl_addr_map = (addr < 27'd128) ? (25'h0400000 + addr[24:0])
 				                                      : (25'h0410000 + (addr[24:0] - 25'd128));
@@ -265,14 +341,58 @@ function automatic [24:0] mz_ioctl_addr_map(
 			FILE_SYSRAM:
 				mz_ioctl_addr_map = 25'h0100000 + addr[24:0];
 			FILE_CGROM:
-				mz_ioctl_addr_map = 25'h0500000 + addr[24:0];
+				mz_ioctl_addr_map = 25'h0500000 + (early ? ((addr < 27'h1000) ? (25'h0006000 + addr[24:0]) : addr[24:0]) :
+				                    (addr < {14'd0, carea}) ? ({10'd0, cbase, 11'd0} + addr[24:0]) : addr[24:0]);
 			default:
 				mz_ioctl_addr_map = addr[24:0];
 		endcase
 	end
 endfunction
 
-wire [24:0] hps_ioctl_addr_mapped = mz_ioctl_addr_map(active_file_slot, hps_ioctl_addr, mzf_load_addr);
+wire [24:0] hps_ioctl_addr_mapped = mz_ioctl_addr_map(active_file_slot, hps_ioctl_addr, mzf_load_addr, mrom_base, mrom_area, cg_base, cg_area,
+                                                      dl_early);
+
+// Staged ROM bookkeeping and the copy engine (the core download bus, while no download runs).
+always @(posedge clk_sys) begin
+	if (!hps_ioctl_download_d && hps_ioctl_download) dl_early <= rom_early;
+	if (hps_ioctl_download && hps_ioctl_wr && dl_early) begin
+		if (active_file_slot == FILE_SYSROM) begin st_rom <= 1; if (hps_ioctl_addr >= 27'h1000) st_rom_comb <= 1; end
+		if (active_file_slot == FILE_CGROM)  begin st_cg  <= 1; if (hps_ioctl_addr >= 27'h1000) st_cg_comb  <= 1; end
+	end
+	rl_rd <= 0; rl_wr <= 0;
+	if (!rl_active) begin
+		if (!rom_early && !hps_ioctl_download && !ds_bus_active && !tape_active && (st_rom || st_cg)) begin
+			rl_active <= 1; rl_i <= 0; rl_ph <= 0;
+			if (st_rom) begin
+				rl_cg  <= 0;
+				rl_src <= 25'h001B000;
+				rl_dst <= st_rom_comb ? 25'h0000000 : {14'd0, mrom_base, 11'd0};
+				rl_len <= (st_rom_comb || mrom_area > 15'h1000) ? 13'h1000 : mrom_area[12:0];
+				st_rom <= 0; st_rom_comb <= 0;
+			end else begin
+				rl_cg  <= 1;
+				rl_src <= 25'h0506000;
+				rl_dst <= st_cg_comb ? 25'h0500000 : 25'h0500000 + {14'd0, cg_base, 11'd0};
+				rl_len <= st_cg_comb ? 13'h1000 : cg_area;
+				st_cg <= 0; st_cg_comb <= 0;
+			end
+		end
+	end
+	else begin
+		case (rl_ph)
+			3'd0: begin rl_addr <= rl_src + {12'd0, rl_i}; rl_rd <= 1; rl_ph <= 3'd1; end
+			3'd1: begin rl_rd <= 1; rl_ph <= 3'd2; end
+			3'd2: begin rl_rd <= 1; rl_ph <= 3'd3; end
+			3'd3: begin rl_dout <= mz_ioctl_din[7:0]; rl_addr <= rl_dst + {12'd0, rl_i}; rl_ph <= 3'd4; end
+			3'd4: begin rl_wr <= 1; rl_ph <= 3'd5; end
+			default: begin
+				rl_ph <= 3'd0;
+				if (rl_i + 1'd1 == rl_len) begin rl_active <= 0; end
+				rl_i <= rl_i + 1'd1;
+			end
+		endcase
+	end
+end
 
 wire [31:0] mz_ioctl_din;
 
@@ -307,9 +427,10 @@ tape_image tape_image
 	.sd_buff_wr(sd_buff_wr),
 
 	.rewind(status[31]),
+	.eject(media_eject),
 	.direct_first(status[52] & (cfg_model[2:1] != 2'b11)),   // Tape Image Start: Direct (not the MZ-80B/2000)
 	.ram_load(tape_ram_load),
-	.host_busy(hps_ioctl_download | ds_bus_active),
+	.host_busy(hps_ioctl_download | ds_bus_active | rl_active),
 	.cmt_status(cmt_status),
 
 	.active(tape_active),
@@ -323,14 +444,15 @@ tape_image tape_image
 	.mounted(tape_mounted),
 	.tape_full(tape_full),
 	.msg(tape_msg), .msg_kind(tape_msg_kind), .rec_total(tape_rec_total), .rec_name(tape_rec_name), .rec_qd(tape_rec_qd),
+	.rec_type(tape_rec_type), .rec_size(tape_rec_size), .load_addr(tape_rec_load), .exec_addr(tape_rec_exec),
 	.record_no(tape_record)
 );
 
 // Core download bus: the tape engine, an OSD download, or parked on an unused address. The CMT clears
 // its record-ready flag whenever the bus points at its buffers, so it must not idle there.
-wire        mz_ioctl_wr   = hps_ioctl_download ? (hps_ioctl_wr && mzf_direct_wr_valid) : ds_bus_active ? ds_bus_wr : tape_active & tape_wr;
-wire [24:0] mz_ioctl_addr = hps_ioctl_download ? hps_ioctl_addr_mapped : ds_bus_active ? ds_bus_addr : tape_active ? tape_addr : 25'h1000000;
-wire  [7:0] mz_ioctl_dout = hps_ioctl_download ? hps_ioctl_dout : ds_bus_active ? ds_bus_dout : tape_dout;
+wire        mz_ioctl_wr   = hps_ioctl_download ? (hps_ioctl_wr && mzf_direct_wr_valid) : ds_bus_active ? ds_bus_wr : rl_active ? rl_wr : tape_active & tape_wr;
+wire [24:0] mz_ioctl_addr = hps_ioctl_download ? hps_ioctl_addr_mapped : ds_bus_active ? ds_bus_addr : rl_active ? rl_addr : tape_active ? tape_addr : 25'h1000000;
+wire  [7:0] mz_ioctl_dout = hps_ioctl_download ? hps_ioctl_dout : ds_bus_active ? ds_bus_dout : rl_active ? rl_dout : tape_dout;
 
 // Load Direct starts the program: after the machine has booted, the bytes the load put in 10F0-11FF are written
 // back and the CPU is fed DI, the bank switches the program needs, LD SP,10F0 and JP exec (rtl/direct_start.sv).
@@ -484,6 +606,7 @@ mz_fdc mz_fdc
 	.int_n(ext_int_n),
 
 	.img_mounted(img_mounted[2:1]),
+	.eject(media_eject),
 	.img_readonly(img_readonly),
 	.img_size(img_size),
 	.sd_lba(fdc_lba),
@@ -503,7 +626,7 @@ mz_fdc mz_fdc
 wire [7:0] fdc_io_din, qd_io_din;
 wire       fdc_io_oe, qd_io_oe, qd_busy;
 reg        qd_mounted = 0;
-always @(posedge clk_sys) if (img_mounted[3]) qd_mounted <= |img_size;
+always @(posedge clk_sys) if (img_mounted[3]) qd_mounted <= |img_size; else if (media_eject) qd_mounted <= 0;
 assign ext_io_oe  = fdc_io_oe | qd_io_oe;
 assign ext_io_din = fdc_io_oe ? fdc_io_din : qd_io_din;
 
@@ -521,6 +644,7 @@ mz_qdisk #(.BYTE_CLKS(QD_BYTE_CLKS)) mz_qdisk
 	.io_oe(qd_io_oe),
 
 	.img_mounted(img_mounted[3]),
+	.eject(media_eject),
 	.img_readonly(img_readonly),
 	.img_size(img_size),
 	.sd_lba(sd_lba[3]),
@@ -540,6 +664,23 @@ assign sd_lba[2] = fdc_lba[1];
 assign sd_buff_din[1] = fdc_buff_din[0];
 assign sd_buff_din[2] = fdc_buff_din[1];
 
+// OSD Auto Load Tape (status 59): after mounting a tape, type the model's load command (rtl/tape_autotype.sv).
+wire [10:0] ps2_key_mz;
+tape_autotype tape_autotype
+(
+	.clk(clk_sys),
+	.enable(status[59] & ~status[52]),              // not with Tape Image Start: Direct (it starts by itself)
+	.reset(reset | warm_reset),
+	.vblank(vblank_emu),
+	.mounted(img_mounted[0] & |img_size),
+	.rec_ready(tape_msg & tape_msg_kind == 2'd0),
+	.rec_no(tape_record),
+	.model(cfg_model),
+	.mz1500(cfg_mz1500),
+	.ps2_in(ps2_key),
+	.ps2_out(ps2_key_mz)
+);
+
 sharpmz core
 (
 	// System clock; the core runs everything on it with clock enables.
@@ -553,7 +694,7 @@ sharpmz core
 
 	.MAIN_LEDS(main_leds),
 
-	.PS2_KEY(ps2_key),
+	.PS2_KEY(ps2_key_mz),
 	.JOY0(joystick_0[5:0]),         // MZ-800: ports F0/F1; MZ-700/1500: MZ-1X03 on E008 when enabled.
 	.JOY1(joystick_1[5:0]),
 	.JOY_1X03(status[39]),
@@ -591,6 +732,7 @@ sharpmz core
 	.CMT_STATUS(cmt_status),
 	.CMT_CTRL(cmt_ctrl),
 	.CMT_DEBUG(cmt_debug),                                // for the simulation (unused here)
+	.TAPE_CLEAR((img_mounted[0] & ~|img_size) | media_eject),   // tape removed (or model changed): the CMT drops its record
 	.EXT_IO_ADDR(ext_io_addr),
 	.EXT_IO_RD(ext_io_rd),
 	.EXT_IO_WR(ext_io_wr),
@@ -617,7 +759,7 @@ sharpmz core
 	.IOCTL_UPLOAD(hps_ioctl_upload),
 	.IOCTL_CLK(clk_sys),
 	.IOCTL_WR(mz_ioctl_wr),
-	.IOCTL_RD(hps_ioctl_rd),
+	.IOCTL_RD(hps_ioctl_rd | rl_rd),
 	.IOCTL_ADDR(mz_ioctl_addr),
 	.IOCTL_DOUT({24'd0, mz_ioctl_dout}),
 	.IOCTL_DIN(mz_ioctl_din)
@@ -644,21 +786,30 @@ mz800_border mz800_border
 );
 
 // Tape image messages over the picture (OSD Tape Messages): where the tape is, for three seconds after it moves.
+// OSD Show Tape Details (status 58, closes the OSD): the details of the record at the tape position, once more.
+reg  tape_show_req = 0, tape_show_last = 0;
+always @(posedge clk_sys) begin
+	tape_show_last <= status[58];
+	tape_show_req  <= status[58] & ~tape_show_last & tape_mounted;
+end
 wire [7:0] R_osd, G_osd, B_osd;
 tape_osd #(.CLK_HZ(CLK_HZ), .FONT_FILE(FONT_FILE), .A2D_FILE(A2D_FILE)) tape_osd
 (
 	.clk(clk_sys),
 	.ce_pix(clk_video_in),
-	.enable(~status[55]),
+	.enable(~status[55] | status[57]),
+	.details(status[57]),
+	.show_details(tape_show_req),
 	.hblank(hblank_brd), .vblank(vblank_brd),
 	.r_in(R_brd), .g_in(G_brd), .b_in(B_brd),
 	.r_out(R_osd), .g_out(G_osd), .b_out(B_osd),
 	.show(tape_msg),
-	.kind(tape_msg_kind),
-	.rec_no(tape_msg_kind == 2'd2 ? tape_rec_total - 1'd1 : tape_record),
+	.kind(tape_show_req ? 2'd0 : tape_msg_kind),
+	.rec_no((tape_msg_kind == 2'd2 && !tape_show_req) ? tape_rec_total - 1'd1 : tape_record),
 	.rec_total(tape_rec_total),
 	.name(tape_rec_name),
-	.qd_file(tape_rec_qd & cfg_mz1500)
+	.qd_file(tape_rec_qd & cfg_mz1500),
+	.rec_type(tape_rec_type), .rec_size(tape_rec_size), .rec_load(tape_rec_load), .rec_exec(tape_rec_exec)
 );
 
 

@@ -110,6 +110,10 @@ architecture RTL of clkgen is
     -- Timer inputs are square waves, so their enables run at twice the timer clock.
     constant R_SND_2M_X2           : rate_t  := rate(2000000 * 2);
     constant R_SND_700_X2          : rate_t  := rate(XTAL_700 * 2, 16);   -- MZ-700 8253 counter 0, 1.1088 MHz.
+    -- Japanese (NTSC) MZ-700 and MZ-1500: counter 0 is the 14.31818 MHz colour clock / 16, 894.9 kHz. Their monitors
+    -- (1Z-009B, the MZ-1500's) load 03F8h for the 880 Hz beep where the European 1Z-013A loads 04ECh (Takeda's
+    -- EmuZ-700/1500: PHI_CLOCKS / 16 for NTSC; mz800emu's MZ-1500: 896 kHz, from the same beep preset).
+    constant R_SND_NTSC_X2         : rate_t  := rate(14318180 * 2, 16);
     constant R_RTC_31500_X2        : rate_t  := rate(31500 * 2);
     constant R_RTC_31250_X2        : rate_t  := rate(31250 * 2);
     constant R_RTC_HSYNC_X2        : rate_t  := rate(XTAL_700 * 2, 1136); -- MZ-700 line rate, 15.611 kHz.
@@ -164,7 +168,12 @@ begin
         end case;
 
         case CONFIG(SNDSPEED) is
-            when "01"   => SND_RATE <= R_SND_700_X2;
+            when "01"   =>
+                if CONFIG(IS_MZ1500) = '1' or CONFIG(REGION_JAPAN) = '1' then
+                    SND_RATE <= R_SND_NTSC_X2;
+                else
+                    SND_RATE <= R_SND_700_X2;
+                end if;
             when others => SND_RATE <= R_SND_2M_X2;
         end case;
 

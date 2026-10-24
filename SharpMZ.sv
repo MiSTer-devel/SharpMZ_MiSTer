@@ -88,7 +88,7 @@ localparam CONF_STR =
 	"S3,QDFMZQMZTMZF,Quick Disk;",
 	"-;",
 	"P1,Machine;",
-	"P1O[38:35],Model,MZ-80A,MZ-80K,MZ-80C,MZ-1200,MZ-700,MZ-80B,MZ-2000,MZ-800,MZ-1500;",
+	"P1O[38:35],Model,MZ-80K,MZ-80C,MZ-80A,MZ-1200,MZ-80B,MZ-2000,MZ-700,MZ-800,MZ-1500;",
 	"P1O[6:4],CPU Speed,Normal,2x,4x,8x,16x,Fastest;",
 	"P1O[30],MZ-80B/2000 Boot Reset,Off,On;",
 	"P1O[32],MZ-800 Mode,MZ-700,MZ-800;",
@@ -104,11 +104,14 @@ localparam CONF_STR =
 	"P2O[54:53],Tape Sound,Off,Mix,Only;",
 	"P2O[49],Load Direct Start,Program,Reset Only;",
 	"P2O[52],Tape Image Start,Tape,Direct;",
+	"P2O[59],Auto Load Tape,Off,On;",
 	"P2O[55],Tape Messages,On,Off;",
+	"P2O[57],Tape Details,Off,On;",
+	"P2R[58],Show Tape Details;",
 	"-;",
 	"P3,Display;",
 	"P3O[8:7],Display Type,Default,Mono 80x25,Colour 40x25,Colour 80x25;",
-			"P3O[18],VRAM Wait,Off,On;",
+			"P3O[18],VRAM Wait,On,Off;",
 	"P3O[43],MZ-800 Border,Off,On;",
 	"P3O[46:44],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
@@ -140,7 +143,7 @@ localparam CONF_STR =
 	// Reset and close OSD (testers: "you press reset and nothing happens").
 	"J1,Fire 1,Fire 2;",
 	"jn,A,B;",
-	"v,5;",
+	"v,6;",
 	"V,v",`BUILD_DATE
 };
 
