@@ -81,6 +81,8 @@ module top(
    output [7:0]  sd_buff_din,
    input         sd_buff_wr,
    input         tape_rewind,    // OSD Rewind Tape Image (status bit 31), held for one frame
+   input         osd_pulse,      // --osd-pulse: status bit osd_pulse_bit set, held for one frame
+   input   [6:0] osd_pulse_bit,
    input         fdd_mounted,    // S1 floppy drive A
    input         fdd_readonly,
    input  [63:0] fdd_size,
@@ -187,7 +189,7 @@ module top(
    end
 
    // OSD Rewind Tape Image is status bit 31; the harness's tape_rewind sets it.
-   wire [127:0] status_in = status | ({127'd0, tape_rewind} << 31);
+   wire [127:0] status_in = status | ({127'd0, tape_rewind} << 31) | ({127'd0, osd_pulse} << osd_pulse_bit);
    wire [15:0]  aud_l, aud_r;
    wire         uart_txd;
 

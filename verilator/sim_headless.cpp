@@ -94,6 +94,7 @@ struct Options {
     uint32_t    joy0 = 0;                // joystick 1, MiSTer bits (5 fire 2, 4 fire 1, 3 up, 2 down, 1 left, 0 right)
     std::set<uint32_t> warm_resets;
     std::map<uint32_t, int> fast_tape_at;   // --fast-tape-at FRAME:STEP
+    std::multimap<uint32_t, std::string> osd_at;   // --osd-at FRAME:"Name=Value, ..."
     std::multimap<uint32_t, std::pair<std::string, uint32_t>> rom_loads;   // --load-rom FRAME:FILE[@ADDR]
     bool        fdd_readonly = false;
     std::string fdd_b;                       // --fdd-b: drive B image
@@ -102,6 +103,8 @@ struct Options {
     int         fdc_mode = 0;
     bool     tape_readonly = false;
     std::set<uint32_t> tape_rewinds;
+    std::set<uint32_t> tape_unmounts;            // --tape-unmount FRAME: Main's unmount (size 0 + the mount strobe)
+    std::map<uint32_t, int> osd_pulses;          // --osd-pulse FRAME:BIT
 };
 
 static void usage()
@@ -147,6 +150,8 @@ static void usage()
 "  --fdc-mode auto|on|off  floppy interface (default auto: present while a disk is mounted)\n"
 "  --tape-readonly        mount it read-only\n"
 "  --tape-rewind N        pulse Rewind Tape Image at frame N (repeatable)\n"
+"  --osd-at FRAME:\"Name=Value\"  change OSD options at FRAME (e.g. the model; repeatable)\n"
+"  --osd-pulse FRAME:BIT  set OSD status bit BIT for one frame (a T/R button; 58 = Show Tape Details)\n"
 "Typing:\n"
 "  --type FRAME:TEXT      type TEXT from FRAME; \\n or {RETURN}, {BREAK}, {DEL}, {INS},\n"
 "                         {HOME}, {CLR}, {UP}, {DOWN}, {LEFT}, {RIGHT}, {WAIT n}\n"
@@ -260,6 +265,11 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--fdd-frame") o.fdd_frame = parse_num(next());
         else if (a == "--boot-reset") o.boot_reset = true;
         else if (a == "--osd") o.osd.push_back(next());
+        else if (a == "--osd-at") {
+            std::string v = next(); size_t c = v.find(':');
+            if (c == std::string::npos) { fprintf(stderr, "--osd-at wants FRAME:Name=Value\n"); return false; }
+            o.osd_at.insert({(uint32_t)std::stoul(v.substr(0, c)), v.substr(c + 1)});
+        }
         else if (a == "--osd-list") o.osd_list = true;
         else if (a == "--conf-str") o.conf_str_file = next();
         else if (a == "--qd") o.qd = next();
@@ -283,6 +293,12 @@ static bool parse_args(int argc, char **argv, Options &o)
         else if (a == "--fdc-mode") { std::string m = next(); o.fdc_mode = m == "on" ? 1 : m == "off" ? 2 : 0; }
         else if (a == "--tape-readonly") o.tape_readonly = true;
         else if (a == "--tape-rewind") o.tape_rewinds.insert(parse_num(next()));
+        else if (a == "--tape-unmount") o.tape_unmounts.insert(parse_num(next()));
+        else if (a == "--osd-pulse") {
+            std::string v = next(); size_t c = v.find(':');
+            if (c == std::string::npos) { fprintf(stderr, "--osd-pulse wants FRAME:BIT\n"); return false; }
+            o.osd_pulses[parse_num(v.substr(0, c))] = atoi(v.substr(c + 1).c_str());
+        }
         else if (a == "--trace-cpu") o.trace_file = next();
         else if (a == "--wav") o.wav_file = next();
         else if (a == "--wav-out") o.wav_out_file = next();
@@ -409,6 +425,7 @@ private:
     // Image slots: 0 = tape (S0), 1 = floppy drive A (S1). The buffer bus is shared.
     FILE    *img = nullptr;
     uint64_t img_size = 0;
+    uint32_t osd_pulse_clocks = 0;            // --osd-pulse: clocks left (not frames: a Reset stops the video)
     FILE    *fdd = nullptr;
     uint64_t fdd_size = 0;
     FILE    *fdd2 = nullptr;                 // --fdd-b: floppy drive B
@@ -573,6 +590,7 @@ void Sim::mount_tape()
 void Sim::clock()
 {
     sd_step();
+    if (osd_pulse_clocks && !--osd_pulse_clocks) top->osd_pulse = 0;
 
     // Sample what the video pipeline sees at this rising edge: MiSTer's
     // video_mixer latches RGB on the clk_sys edge where CE_PIXEL is high.
@@ -829,8 +847,16 @@ void Sim::on_frame_end()
     }
 
     top->tape_rewind = opt.tape_rewinds.count(frame) ? 1 : 0;   // Held for one frame.
+    if (opt.tape_unmounts.count(frame)) {                        // the image is removed: size 0, strobe for one frame
+        img_size = 0; top->img_size = 0; top->img_mounted = 1;
+        if (!opt.quiet) fprintf(stderr, "[sim] frame %u: tape image unmounted\n", frame);
+    } else if (opt.tape_unmounts.count(frame - 1)) top->img_mounted = 0;
+    { auto pu = opt.osd_pulses.find(frame);                      // --osd-pulse: about 1 ms, as Main's T/R pulse
+      if (pu != opt.osd_pulses.end()) { top->osd_pulse = 1; top->osd_pulse_bit = pu->second; osd_pulse_clocks = 50000; } }
     auto rl = opt.rom_loads.equal_range(frame);
     for (auto it = rl.first; it != rl.second; ++it) load_rom(it->second.first, it->second.second);
+    auto oa = opt.osd_at.equal_range(frame);                    // --osd-at: change OSD options mid-run
+    for (auto it = oa.first; it != oa.second; ++it) { apply_osd(it->second); apply_status(); }
     if (opt.fast_tape_at.count(frame))
         { set_status(21, 3, (uint32_t)opt.fast_tape_at.at(frame)); apply_status(); }     // OSD Fast Tape (menu step)
     if (opt.warm_resets.count(frame)) {          // OSD Reset: Main sets status bit 0 and clears it at once
@@ -897,7 +923,7 @@ bool Sim::apply_osd(const std::string &assignments)
 void Sim::write_config()
 {
     static const struct { const char *name; int menu; } MODEL_MENU[] = {
-        {"mz80a", 0}, {"mz80k", 1}, {"mz80c", 2}, {"mz1200", 3}, {"mz700", 4}, {"mz80b", 5}, {"mz2000", 6}, {"mz800", 7},
+        {"mz80k", 0}, {"mz80c", 1}, {"mz80a", 2}, {"mz1200", 3}, {"mz80b", 4}, {"mz2000", 5}, {"mz700", 6}, {"mz800", 7},
         {"mz1500", 8}};
     for (auto &m : MODEL_MENU) if (opt.model == m.name) set_status(35, 4, (uint32_t)m.menu);
     set_status(4, 3, (uint32_t)(opt.turbo & 7));             // CPU Speed

@@ -125,6 +125,11 @@ architecture rtl of video_vc is
     signal VIDEO_DATA_OUT    : std_logic_vector(31 downto 0);
     signal VGA_R, VGA_G, VGA_B : std_logic_vector(3 downto 0);
     signal HBLANKi           : std_logic;
+    signal VBLANKi           : std_logic;
+    signal M7_HB_LAST        : std_logic := '0';
+    signal M7_CNT            : unsigned(7 downto 0) := (others => '1');          -- CPU clocks since this line's blanking began.
+    signal M7_FREE           : std_logic;
+    signal M7_WAIT_n         : std_logic;
     signal CG_BANK           : std_logic_vector(3 downto 0);
     signal CG_4K             : std_logic;
     signal CG_IOCTL_WR       : std_logic;
@@ -243,7 +248,7 @@ begin
             HSYNC_OUTn       => HSYNC_n,
             VSYNC_OUTn       => VSYNC_n,
             HBLANK_OUT       => HBLANKi,
-            VBLANK_OUT       => VBLANK,
+            VBLANK_OUT       => VBLANKi,
             COLR_OUT         => CSYNC_UNUSED(0),
             CSYNC_OUTn       => CSYNC_UNUSED(1),
             CSYNC_OUT        => CSYNC_UNUSED(2),
@@ -270,6 +275,7 @@ begin
         );
 
     HBLANK    <= HBLANKi;
+    VBLANK    <= VBLANKi;
     T80_DO    <= VIDEO_DATA_OUT(7 downto 0);
     ROUT      <= VGA_R & VGA_R;
     GOUT      <= VGA_G & VGA_G;
@@ -290,7 +296,30 @@ begin
             end if;
         end if;
     end process;
-    WAITi_n    <= '0' when CS_VRAM_n = '0' and VRAM_WAIT = '0' and HBLANKi = '0' and (CONFIG(MZ_A) = '1' or CONFIG(MZ700) = '1') else '1';
-    T80_WAIT_n <= WAITi_n and WAITii_n when CONFIG(VRAMWAIT) = '1' else '1';
+    WAITi_n    <= '0' when CS_VRAM_n = '0' and VRAM_WAIT = '0' and HBLANKi = '0' and CONFIG(MZ_A) = '1' else '1';
+
+    -- MZ-700 / MZ-1500 (the GDG): the CPU gets VRAM only in a short window at the start of each line's horizontal
+    -- blanking, on every line (vertical blanking too); an access at any other time waits for the next window. As
+    -- Takeda's EmuZ-700/1500 (vm/mz700/memory.cpp: blank_vram, set at BLANK_CLK_S, cleared at BLANK_CLK_E): PAL free
+    -- from 128 to 208 of 227 CPU clocks (80), NTSC (the Japanese MZ-700 and the MZ-1500) from 160 to 220 of 228
+    -- (60). Tiny Xevious, play screen to the first road: EmuZ-700 282 frames NTSC, 202 PAL; the core with the
+    -- earlier rule (wait only while a line is drawn, none in vertical blanking, as mz800emu) took 186 NTSC; Danjuro
+    -- found it still too fast against the emulators and a real machine.
+    process( CLKBUS(CKMASTER) )
+    begin
+        if rising_edge(CLKBUS(CKMASTER)) then
+            M7_HB_LAST <= HBLANKi;
+            if HBLANKi = '1' and M7_HB_LAST = '0' then
+                M7_CNT <= (others => '0');                                     -- blanking starts: the window opens
+            elsif CLKBUS(CKENCPU) = '1' and M7_CNT /= 255 then
+                M7_CNT <= M7_CNT + 1;
+            end if;
+        end if;
+    end process;
+    M7_FREE    <= '1' when (CONFIG(IS_MZ1500) = '1' or CONFIG(REGION_JAPAN) = '1') and M7_CNT < 60 else
+                  '1' when CONFIG(IS_MZ1500) = '0' and CONFIG(REGION_JAPAN) = '0' and M7_CNT < 80 else
+                  '0';
+    M7_WAIT_n  <= '0' when CONFIG(MZ700) = '1' and CS_VRAM_n = '0' and T80_MREQ_n = '0' and M7_FREE = '0' else '1';
+    T80_WAIT_n <= (WAITi_n and WAITii_n and M7_WAIT_n) when CONFIG(VRAMWAIT) = '1' else '1';
 
 end rtl;

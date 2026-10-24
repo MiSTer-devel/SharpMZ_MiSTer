@@ -13,6 +13,15 @@
 //                                                    A215): MZ-5Z001 only loads it from a Quick Disk
 //                  MiSTer's own popups (CONF_STR "I,") only show fixed strings, so they can't name the program.
 //
+//                  OSD Tape Details: for a record ready to play the box grows to the v2 core's Tape Details page (which
+//                  Main drew for it), for five seconds:
+//                      TAPE 1/2 ANDROMEDA
+//                      NAME  ANDROMEDA
+//                      TYPE  01 MACHINE CODE
+//                      SIZE  1F30
+//                      LOAD  2C00   EXEC  2C00
+//                      (NOT A MACHINE CODE PROGRAM: for any other type)
+//
 //                  The text is drawn between the core's video and video_mixer, so it works at 15 kHz and
 //                  doubled. Characters are 8x8 (16 pixels wide on 640-pixel lines, the 80-column modes),
 //                  white on a black box. A name is Sharp ASCII; the monitor's table turns it into display codes,
@@ -30,7 +39,9 @@ module tape_osd #(
 (
 	input             clk,
 	input             ce_pix,
-	input             enable,          // OSD Tape Messages: On
+	input             enable,          // OSD Tape Messages: On (or Tape Details)
+	input             details,         // OSD Tape Details: On
+	input             show_details,    // OSD Show Tape Details: a pulse, the details of the record now, whatever the options
 
 	// Video in and out.
 	input             hblank,
@@ -44,15 +55,22 @@ module tape_osd #(
 	input       [7:0] rec_no,          // 0 = the first record
 	input       [7:0] rec_total,
 	input     [127:0] name,            // header bytes 1-16 (byte 1 in bits 7:0), ended by 0D
-	input             qd_file          // the record is a Quick Disk file (MZ-1500): "QD:" in place of "TAPE"
+	input             qd_file,         // the record is a Quick Disk file (MZ-1500): "QD:" in place of "TAPE"
+	input       [7:0] rec_type,        // the record's header, for Tape Details
+	input      [15:0] rec_size,
+	input      [15:0] rec_load,
+	input      [15:0] rec_exec
 );
 
 localparam COLS = 32;
+localparam ROWS = 6;
 localparam [7:0] SHOW_FRAMES = 8'd150;      // about three seconds
+localparam [7:0] DETAIL_FRAMES = 8'd250;    // about five seconds
 
 // ---- Message text (Sharp ASCII), built when it is shown ---------------------------------------
-reg  [7:0] text[COLS];
+reg  [7:0] text[ROWS*COLS];
 reg  [7:0] timer = 0;       // frames left to show the message
+reg  [2:0] nrows = 1;       // rows shown: 1, or ROWS for the details
 
 function automatic [23:0] dec3(input [7:0] v);     // three ASCII digits, leading zeros as spaces (left aligned below)
 	reg [7:0] h, t, u;
@@ -83,13 +101,46 @@ task automatic put_str(input [8*12-1:0] s, input integer n, inout integer p);  /
 	end
 endtask
 
+function automatic [7:0] hexd(input [3:0] v);
+	hexd = v < 4'd10 ? 8'h30 + v : 8'h37 + v;
+endfunction
+
+task automatic put_hex(input [15:0] v, input integer n, inout integer p);       // n hex digits (2 or 4)
+	integer k;
+	begin
+		for (k = n - 1; k >= 0; k = k - 1) begin
+			text[p] <= hexd(v[4*k +: 4]);
+			p = p + 1;
+		end
+	end
+endtask
+
+task automatic put_name(input integer p0);
+	integer k, stop;
+	begin
+		stop = 0;
+		for (k = 0; k < 16; k = k + 1) begin
+			if (name[8*k +: 8] == 8'h0D || name[8*k +: 8] == 8'h00) stop = 1;
+			if (!stop && p0 + k < ROWS*COLS) text[p0 + k] <= name[8*k +: 8];
+		end
+	end
+endtask
+
+reg details_q = 0;
+always @(posedge clk) details_q <= details;
+
 reg qd_q = 0;               // qd_file, registered (it comes from the OSD status; timing)
 always @(posedge clk) qd_q <= qd_file;
 
-integer i, p, e;
+wire show_now = (show & enable) | show_details;
+wire det_now  = (details_q | show_details) && kind == 2'd0;
+reg  forced = 0;            // shown by the button: stays up for its time even with the options off
+
+integer i, p;
 always @(posedge clk) begin
-	if (show & enable) begin
-		for (i = 0; i < COLS; i = i + 1) text[i] <= 8'h20;
+	if (show_now) begin
+		for (i = 0; i < ROWS*COLS; i = i + 1) text[i] <= 8'h20;
+		nrows <= det_now ? 3'd6 : 3'd1;
 		p = 0;
 		put_str((qd_q && kind == 2'd0) ? "QD:         " : "TAPE        ", 5, p);   // QD: mount it as the Quick Disk (README)
 		case (kind)
@@ -107,11 +158,22 @@ always @(posedge clk) begin
 			end
 			default: put_str("FULL        ", 4, p);
 		endcase
-		if (kind == 2'd0 || kind == 2'd2) begin
-			e = 0;
-			for (i = 0; i < 16; i = i + 1) begin
-				if (name[8*i +: 8] == 8'h0D || name[8*i +: 8] == 8'h00) e = 1;
-				if (!e && p + i < COLS) text[p + i] <= name[8*i +: 8];
+		if (kind == 2'd0 || kind == 2'd2) put_name(p);
+		if (det_now) begin
+			p = 1*COLS; put_str("NAME        ", 6, p);  put_name(p);
+			p = 2*COLS; put_str("TYPE        ", 6, p);  put_hex(rec_type, 2, p); p = p + 1;
+			case (rec_type)
+				8'h01:   begin put_str("MACHINE CODE", 12, p); end
+				8'h02:   begin put_str("BASIC       ", 5, p); if (qd_q) put_str(" (QD)       ", 5, p); end
+				8'h03:   begin put_str("DATA        ", 4, p); end
+				8'h05:   begin put_str("BASIC       ", 5, p); end
+				default: ;
+			endcase
+			p = 3*COLS; put_str("SIZE        ", 6, p);  put_hex(rec_size, 4, p);
+			p = 4*COLS; put_str("LOAD        ", 6, p);  put_hex(rec_load, 4, p);
+			p = p + 3;  put_str("EXEC        ", 6, p);  put_hex(rec_exec, 4, p);
+			if (rec_type != 8'h01) begin
+				p = 5*COLS; put_str("NOT A MACHIN", 12, p); put_str("E CODE PROGR", 12, p); put_str("AM          ", 2, p);
 			end
 		end
 	end
@@ -121,8 +183,10 @@ end
 reg vb_t = 0;
 always @(posedge clk) begin
 	vb_t <= vblank;
-	if (!enable)                timer <= 0;
-	else if (show)              timer <= SHOW_FRAMES;
+	if (show_details)           forced <= 1;
+	else if (timer == 0)        forced <= 0;
+	if (show_now)               timer <= det_now ? DETAIL_FRAMES : SHOW_FRAMES;
+	else if (!enable && !forced) timer <= 0;
 	else if (vblank & ~vb_t && timer != 0) timer <= timer - 1'd1;
 end
 
@@ -150,14 +214,23 @@ end
 
 wire        wide = line_w > 11'd400;                         // 640-pixel lines: double width
 wire [10:0] x0   = wide ? 11'd16 : 11'd8;
-wire  [9:0] y0   = frame_h - 10'd14;
+// Rows are 10 lines apart (8 for the text); the box ends 4 lines above the bottom of the picture.
+reg   [9:0] y0 = 0;
+always @(posedge clk) y0 <= frame_h - 10'd4 - 10'd10 * nrows;
 wire [10:0] dx   = px - x0;
 wire  [9:0] dy   = ln - y0;
 wire  [5:0] col  = wide ? dx[9:4] : dx[8:3];
 wire  [2:0] bit_ = wide ? dx[3:1] : dx[2:0];
-wire        in_text = px >= x0 && col < COLS && ln >= y0 && dy < 10'd8;
+reg   [2:0] row = 0;        // text row and line within it (0-9) of the current line, counted line by line
+reg   [3:0] rline = 0;
+always @(posedge clk) if (ce_pix && hblank && !hb_last) begin
+	if (ln + 1'd1 == y0 || vblank) begin row <= 0; rline <= 0; end
+	else if (rline == 4'd9) begin rline <= 0; row <= row + 1'd1; end
+	else rline <= rline + 1'd1;
+end
+wire        in_text = px >= x0 && col < COLS && ln >= y0 && row < nrows && rline < 4'd8;
 wire        in_box  = timer != 0 && px + 11'd4 >= x0 && px < x0 + (wide ? 11'd16 : 11'd8) * COLS + 11'd4 &&
-                      ln + 10'd2 >= y0 && ln < y0 + 10'd10;
+                      ln + 10'd2 >= y0 && ln < y0 + 10'd10 * nrows;
 
 // ---- Character lookup: Sharp ASCII -> display code -> glyph row (two clocks; ce_pix is at most every fourth) ----
 reg [7:0] a2d[256];
@@ -169,8 +242,8 @@ end
 reg [7:0] code_q, glyph_q;
 reg [2:0] row_q;
 always @(posedge clk) begin
-	code_q  <= a2d[text[col[4:0]]];
-	row_q   <= dy[2:0];
+	code_q  <= a2d[text[row * COLS + col[4:0]]];
+	row_q   <= rline[2:0];
 	glyph_q <= font[{code_q, row_q}];
 end
 

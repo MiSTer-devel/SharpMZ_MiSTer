@@ -66,12 +66,45 @@ Reference checks: mz800emu's headless mode now takes `--qd FILE` and `--qd-swap 
 2. [x] 60 Hz: the MZ-1500 and the Japanese MZ-700 use the 60 Hz colour timing (568 x 260, 15.6 kHz); European
    MZ-700/800 stay 50 Hz.
    - [ ] On hardware: timing, picture, and that games run at their original speed.
+   - [x] Danjuro (2026-10-15): "games run too fast at 60 Hz, right at 50 Hz". Japanese (NTSC) machines run the 8253's
+     counter 0 at 14.31818 MHz / 16 = 894.9 kHz, not the European 1.1088 MHz: the 1Z-009B and MZ-1500 monitors load
+     03F8h for the 880 Hz beep where 1Z-013A loads 04ECh (EmuZ-700/1500: PHI_CLOCKS / 16 for NTSC; mz800emu's
+     MZ-1500: 896 kHz). The core gave them 1.1088 MHz: music 24% high and counter-0 timing (PIO interrupts, tempo
+     loops) 24% fast. Fixed in clkgen.vhd for the MZ-1500 and Region Japan. Games that wait for VBLANK do run 20%
+     faster at 60 Hz, as on a Japanese machine (both reference emulators run the MZ-1500 at 60 Hz).
+   - [x] Danjuro (2026-10-16, on 15b and 15d): Tiny Xevious still far too fast against two emulators and a video of a
+     real Japanese machine; PAL even faster than NTSC. The core's MZ-700 had no real VRAM wait: on the GDG a VRAM
+     access while a line is drawn waits until that line's blanking (Takeda's EmuZ-700; mz800emu's mz700_vramctrl.h,
+     from a gate-level simulation of the GDG). Now in video_vc.vhd, VRAM Wait On by default (MZ-700/1500 only).
+     tests/mz700/vbench.mzf: 30000 VRAM writes take 1.71 M clocks (mz800emu 1.70 M; 1.20 M without the wait).
+     PAL faster than NTSC is expected for a game timed by 8253 counter 0 (1.1088 MHz against 894.9 kHz).
+   - [x] Danjuro (2026-10-17): still too fast on 20261016b. Measured against Takeda's EmuZ-700 (the Mac port): play
+     screen to the first road in Tiny Xevious, EmuZ-700 282 frames NTSC / 202 PAL, mz800emu 160 (PAL), the core 186
+     (NTSC, the mz800emu-style wait). EmuZ-700's GDG wait applies on every line, vertical blanking too, with the CPU
+     free only from the start of each line's blanking for 80 CPU clocks (PAL) or 60 (NTSC). video_vc.vhd now does
+     that: 278 frames NTSC, 198 PAL (within 2%). mz800emu disagrees by about 25%; Danjuro's real-machine video agrees
+     with the EmuZ emulators.
+   - [ ] Danjuro to retest on the new build. (2026-10-17: Danjuro confirms PAL faster than NTSC is right; Tiny
+     Xevious "still very fast" was on 20261016b, before the EmuZ-style wait.)
+   - [x] Batten Tanuki: "a buzzing sound in the back playing constantly". The MZ-1500 beeper wasn't gated by 8255
+     PC0 (only the MZ-800 was): the game runs 8253 counter 0 as its keyboard timer with PC0 low, and that timer
+     played under the music (capture card: 42.6 Hz and harmonics, near full scale on the right). mz80c.vhd gates
+     the MZ-1500 as the MZ-800 (EmuZ-1500: speaker = OUT0 and PC0). Hardware Q10: the buzz is gone.
+   - [x] Snake & Snake (Tecno Soft, MZ-700) "doesn't load in NTSC since 20261015": not a regression. The file is
+     "SNAKE&SNAKE EXP1", an export version that calls 1Z-013A's internal routines directly (09D5h x14, 09D4h,
+     JP 00F0h); in the Japanese monitor 1Z-009B (Region Japan since 20261014b) those addresses hold other code, so
+     it stops at the monitor on every build since 14b (hardware X07 on 14c, 15, 15b and now), as it would on a real
+     Japanese MZ-700. Use Region Europe for it (X06: the title). The first 20261014 build's Japanese option only
+     changed the character set and kept 1Z-013A, which is why it worked there.
+   - [ ] Smaller: the NTSC CPU clock is 3.579545 MHz (14.31818 / 4), 0.9% above the European 3.546895; counter 1
+     (the clock) counts the 15.73 kHz line rate. The core keeps the European rates for both.
 3. [ ] MZ-1500 sound. Measured: the sim (new `--wav-out`: the core's final stereo output) and the hardware (capture
    card, `('audio', label)` steps; mister126 needed `dvi_mode=0` in MiSTer.ini, backup MiSTer.ini.bak_dvi, and the
    card's "Digital In" capture switched on) both give left 440 Hz / right 880 Hz for tests/mz1500/psgstereo.mzf
    (test A01, sim psg_mz1500): the stereo works. The level was 4095 of 65535 peak to peak for one channel at full
    volume (1/16 of full scale). Now 3x on the MZ-800/1500 (PSGs and beeper): 12285.
-   - [ ] "Left only" in some games: ask Danjuro which games (the ones that show "Stereo sound!").
+   - [x] "Left only": Danjuro (2026-10-16): only that the sound was very low; with the 3x level it is fixed (the
+     "stereo sound" game was Thunder Force).
    - [ ] Hardware level check of the new build (A01).
 4. [x] Load Tape to CMT removed from the OSD (Tape Image does it all). The core still takes file index 1 (the sim's
    `--mzf` uses it). T07 and Z02 use the tape image.
@@ -85,7 +118,7 @@ Reference checks: mz800emu's headless mode now takes `--qd FILE` and `--qd-swap 
    bit 4 = the 8253's OUT0, active high) taken at each terminal count of counter 0 (mode 0, reloaded by the handler).
    The core, like mz800emu, gave the PIO the inverse of OUT0 (the MZ-800's /CTC0): one interrupt, then none. On the
    MZ-1500 PA4 is now OUT0 itself (mz80c.vhd); the MZ-800 keeps the inverse. tests/mz1500/pioint.mzf (sim
-   pio_mz1500): 3785 interrupts by frame 300 (was 1; mz800emu gives 1). Hardware Q06: F1 starts the game.
+   pio_mz1500): 3785 interrupts by frame 300 (was 1; mz800emu gives 1); 3070 (0BFEh) with the NTSC 894.9 kHz counter 0 clock. Hardware Q06: F1 starts the game.
    May also be behind Danjuro's skipped keys and some sound on other MZ-1500 titles: retest those.
 7. [x] 3-D Golf, Earthbound, Nobunaga no Yabou (and Zulpoko's "Illegal data error in 150"): fixed. On the MZ-1500,
    OUT E5 (open the CG/PCG window) also switched D000-FFFF from RAM to ROM in the core (mz80c.vhd, as mz800emu), so
@@ -103,16 +136,52 @@ Reference checks: mz800emu's headless mode now takes `--qd FILE` and `--qd-swap 
    Excite 4-nin Mahjong, Nonbarla Panic, Sonic Birds, Zexas. Ask for side B (correct): Dig Dug, New Rally-X, Flappy.
    "QD:File mode error": Cockpit and Sparrow are BASIC programs (type 02) on disks without BASIC: boot MZ-5Z001 first
    (now: its tape in the QD slot), then this disk, RUN"COCKPIT". T.N.T. Bomb Bomb loads its PCG data (slow).
-9. [ ] Cybernoid (MZ-800, Profi, 4 files: loader 4F00, CYB1-3): a core bug. mz800emu (the four files as one tape, C at
+9. [x] Cybernoid (MZ-800, Profi, 4 files): fixed in the CMT (cmt.vhd), not the CPU. The loader reads each file with
+   the monitor's tape routine (its RAM copy, patched to call 50A0) and stops and restarts the motor between files. (1)
+   A motor restart before the tape image had replaced the record played the finished record again: CYB1 was read
+   twice, so the picture came out scrambled. Now a played record is not replayed; the next one follows when it is
+   loaded, as on a real tape. (2) When the release timer fired with the motor running, PLAY_READY dropping looked
+   like a motor stop and restarted the timer while PLAY_READY_CLR was still high, so the next release had no edge
+   and CYB3 never came. Found by comparing the bytes passing 50A3 (OUT (E1),A) with mz800emu. Hardware: H06 (real
+   speed) and H07 (Fastest) reach the Profi menu.
+   Earlier notes: (Cybernoid (MZ-800, Profi, 4 files: loader 4F00, CYB1-3): a core bug. mz800emu (the four files as one tape, C at
    the IPL) shows the Cybernoid loading picture with a counter and reaches the game's menu at about frame 20000
    (real tape speed). On mister126 (H06 real speed, H07 Fastest, H08 VRAM Wait On) the picture comes out scrambled
    (the artwork's outline, garbled) and the counter stops at 979. The loader is packed (no plain ROM calls): likely
    its own tape routine, drawing while it loads, misreading bits. Next: CPU traces of the sim and mz800emu from the
-   loader's start, first divergence (tape bit timing, wait states, the 8253/PIO it may use for timing).
+   loader's start, first divergence (tape bit timing, wait states, the 8253/PIO it may use for timing).)
+9b. [x] W02 (Druaga tape with a blank QD) ending in "QD:Unformat err" is the expected result, not a bug: the Druaga
+   tape is a Quick Disk product dumped to tape (see 2026-10-02 below), whose side A asks for the original disk's side
+   B. mz800emu's MZ-1500 ends the same way. (Play it from tools/mzf2qdf.py disks: test G01.)
+9c. [x] EeDee: machine order by date (MZ-80K, MZ-80C, MZ-80A, MZ-1200, MZ-80B, MZ-2000, MZ-700, MZ-800, MZ-1500).
+   The default model is now the MZ-80K, and a saved model setting points at a different machine after updating.
+9d. [x] EeDee: tape image with BASIC SP-5030 then Supergolf (MZ-80K) hung after FOUND SUPERGOLF. Not the core: EeDee's
+   sp-5030.mzf is 3601h bytes for a 3600h program (1080 of 4212 .mzf files in the collections carry extra bytes),
+   so joined into one tape its last byte (1E) sat where the next header starts; SP-5030 read type 1E and waited for
+   another header. tape_image.sv now skips such bytes: a record whose type is not 01-05 and whose size runs past
+   the end of the image is junk, and the header is looked for one byte further on (up to 255). Sim and mister126
+   (S01 real speed, S02 Fastest): Super Golf loads and starts. Full sim regression: 59 pass.
+9e. [x] Danjuro (2026-10-17): the MZ-80K showed garbage until a ROM was loaded by hand. Load System ROM / Load CGROM
+   wrote a single ROM at the start of the combined image, the MZ-80K's monitor and character set, and Main reloads
+   the remembered file at every start. A single ROM now goes into the current model's slot (40/80 columns, Region;
+   MZ-800 16 KB, MZ-80B/2000 2 KB IPL, CG 2 or 4 KB); a longer file is a combined image as before. One remembered
+   file for the core stays (Main has only the slot digits 0-9 and the core uses six): per-model memory would need a
+   Main change. Sim: --load-rom on the MZ-700 gives "MONITOR TEST-X", the MZ-80K keeps SP-1002.
+9f. [x] Danjuro: eject media on a model change. A change of the Model option (3 s after a cold start, so the saved
+   settings and an MGL's mounts aren't affected) makes the tape image, the floppies and the Quick Disk count as
+   removed until remounted. Sim: --osd-at 400:Model=MZ-80A after mounting a tape on the MZ-700: L waits.
+   - [x] Hardware (2026-10-18): Main sends the remembered System ROM / CGROM at core start before the saved settings
+     (status still 0 = MZ-80K; test R03 put a remembered MZ-700 monitor on the MZ-80K). A ROM that arrives in the first
+     3 s is now staged (system ROM banks 54-55, CG banks 12-13) and moved to the selected model's slot once the
+     settings are in, then the machine resets. R01 (remembered TEST-X 1Z-013A, MZ-700): starts on it; every model's
+     boot (T01-T06, T25) and the tape/game tests unchanged. Limit: a remembered 16 KB MZ-800 IPL lands at the start as
+     before. (An MGL can't load files from an OSD sub-page, so R01 writes Main's config/R01.f3: mister_test remember=.)
+   - [ ] Eject on a model change on hardware (sim only so far: mister_test can't change the model mid-test).
 10. [ ] EeDee: "ROMs persistent for one machine at a time": Load System ROM is one remembered file (FC) for the core,
    not per model. Explain; a per-model ROM would need one CONF_STR entry per model.
-11. [ ] Tape image: EeDee is still working it out (item B): a README walkthrough.
-12. [ ] Danjuro (later, with emulators): "a lot of games, even text adventures, had a sort of lag (sometimes key
+11. [x] Tape image: EeDee is still working it out (item B): README "Using the tape image, step by step" (2026-10-15).
+12. [x] Closed (Danjuro, 2026-10-16): "just a computer issue: you can't type two letters at once, only space,
+   shift and control with another key", as on the real keyboard. Original report: Danjuro (later, with emulators): "a lot of games, even text adventures, had a sort of lag (sometimes key
    input would be skipped), which didn't happen in the emulators". Check on 20261014b (60 Hz MZ-1500): keyboard
    scan vs. PS/2 key timing (keymatrix hold, the PC layout's forced SHIFT lead/tail), with mister_keys typing fast.
    Lead: keymatrix's key hold keeps every pressed key in the matrix until 50 ms after the latest press, so two keys
@@ -142,7 +211,7 @@ error" (check against MAME or their CRCs).
       in the collection.
 
 **B. Tape Image is hard to follow (EeDee).** Already improved in 20261012b by Tape Messages (TAPE n/total NAME).
-- [ ] Check with EeDee once on 12b; consider a README walkthrough (mount, C/L, how records advance, Rewind).
+- [x] README walkthrough (mount, C/L, how records advance, Rewind): "Using the tape image, step by step".
 
 **C. MZ-1500 BASIC: "CMT: Illegal filemode error" at the end of loading BASIC; then LOAD fails (tester 3).**
 BASIC mz-5z001.mzt (A216 bytes + a type 02 AUTO RUN record), Zulpoko Daisakusen and Techno City Cars (type 02, load A215).
@@ -254,7 +323,18 @@ Working well for testers: Snake & Snake (MZ-700), Donkey Gorilla in play, MZ-80K
 - [x] Audio mixing: OSD Tape Sound mixes the tape signal in quietly while it moves. Not yet heard on hardware.
 - [x] Joystick mapping in the OSD (Fire 1, Fire 2).
 - [x] Analog video: native 15.6 kHz on every model; video_mixer adds the 31 kHz scandoubler (MiSTer.ini forced_scandoubler, OSD Scandoubler Fx with HQ2x and scanlines). The MZ-80K/80A/80B 60 Hz modes now use clk_sys / 8 (/ 4) pixel clocks with a 568 (1136) pixel line, like the MZ-700: their 8/16 MHz enables were uneven and the scandoubler cut lines short. Checked through the scaler on hardware (V01-V05); not yet seen on a real CRT or VGA monitor.
-- [ ] Show tape status (record number, tape full) in the OSD.
+- [x] Show tape status (record number, tape full): Tape Messages (rtl/tape_osd.sv) shows TAPE n/total NAME, END,
+  SAVED, FULL.
+- [x] Tape details (OSD Tape Details, status 57): the v2 core's Main-drawn "Tape Details" page, drawn in the picture by
+  tape_osd (six rows: TAPE n/total, NAME, TYPE, SIZE, LOAD/EXEC, NOT A MACHINE CODE PROGRAM) for five seconds when a
+  record is ready. Hardware L17 (after L: R.P.S., 05 BASIC, 04FA, 6BCF). Sim: shown at frame 50 after mounting.
+  - [x] OSD Show Tape Details (status 58, closes the OSD): the details of the record at the tape position, five
+    seconds, whatever the options (sim: --osd-pulse 400:58).
+- [x] Auto Load Tape (OSD, status 59; rtl/tape_autotype.sv): armed by a mount, it types the model's command about 2 s
+  after the first record is ready (counted from the end of any reset): MZ-80K/C/1200 LOAD+CR, MZ-80A/700 L+CR,
+  MZ-800/1500 C; nothing on the MZ-80B/2000. PS/2 events in place of the keyboard's. Sim: all four kinds load.
+  Hardware L18 (MZ-700 BASIC), L19 (MZ-800 Cauldron II), L20 (MZ-1500 Pac-Man), nothing typed by the test.
+  - [ ] BASIC programs: after the BASIC tape, LOAD and RUN the next record (needs knowing BASIC is at Ready).
 - [x] Tape PLAY_READY delay: half a second of clk_sys (`CLK_SYS_HZ` in clkgen_pkg), was a bare 32,000,000.
 - [ ] Optional 64 MHz clock for the MZ-80K/80A/80B family, so their clock enables are exact (±1 clk_sys jitter now).
 - [x] Unit testbenches for `cmt.vhd` and the i8254 (`make test-cmt`, `make test-i8254`).
@@ -279,7 +359,8 @@ Working well for testers: Snake & Snake (MZ-700), Donkey Gorilla in play, MZ-80K
 - [x] Tester build `releases/SharpMZ_20261009b.rbf`: OSD Reset fixed.
 - [x] Tester build `releases/SharpMZ_20261011.rbf`: OSD Keyboard Layout (PC default), MZ-1200 keys.
 - [x] First release `releases/SharpMZ_20261012.rbf` (2026-10-12): OSD cleaned up (Fast Tape Fastest by default, CPU Speed Normal..Fastest, Tape Sound Off/Mix/Only, Load Direct Start, no Load Keymap / Video / Graphics), project files SharpMZ.*. Full hardware suite, 133 tests, all pass (52 on the 10.0.2.192 MiSTer, 81 on mister126).
-- [ ] Later: v2 machine options (RAM size, GRAM, MZ-1R25), and removing `support/sharpmz/` from Main_MiSTer.
+- [ ] Later: v2 machine options (RAM size, GRAM, MZ-1R25).
+- [x] `support/sharpmz/` removed from Main_MiSTer (done by alanswx, 2026-10).
 - [x] MZ-2500/2520: researched in `docs/mz2500.md`; now its own project, https://github.com/alanswx/SharpMZ2500_MiSTer (`~/dev2/SharpMZ2500_MiSTer`: skeleton core, Verilator sim, docs, phased TODO).
 
 ## Known issues

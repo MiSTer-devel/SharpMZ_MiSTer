@@ -1109,10 +1109,13 @@ begin
 
     -- Audio output. Choose between generated sound and CMT pulse audio.
     --
-    AUDIO_L    <= (SOUND and (VGATE_ni or not M8)) when CONFIG(AUDIOSRC) = '0'            -- Sound Output Left (MZ-800: gated by PC0)
+    -- The MZ-800 and MZ-1500 gate the beeper with 8255 PC0 (speaker = 8253 OUT0 and PC0, as Takeda's EmuZ-800/1500:
+    -- and_snd). Batten Tanuki runs counter 0 as its keyboard interrupt timer with PC0 low; without the gate on the
+    -- MZ-1500 that timer buzzed under the music (Danjuro: "hellish", 42.6 Hz and its harmonics on the capture card).
+    AUDIO_L    <= (SOUND and (VGATE_ni or not (M8 or M15))) when CONFIG(AUDIOSRC) = '0'   -- Sound Output Left (MZ-800/1500: gated by PC0)
                   else
                   CMT_BUS_OUT(WRITEBIT);
-    AUDIO_R    <= (SOUND and (VGATE_ni or not M8)) when CONFIG(AUDIOSRC) = '0'            -- Sound Output Right (MZ-800: gated by PC0)
+    AUDIO_R    <= (SOUND and (VGATE_ni or not (M8 or M15))) when CONFIG(AUDIOSRC) = '0'   -- Sound Output Right (MZ-800/1500: gated by PC0)
                   else
                   CMT_BUS_OUT(READBIT);
 

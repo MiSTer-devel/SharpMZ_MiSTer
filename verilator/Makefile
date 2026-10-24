@@ -77,7 +77,7 @@ $(CLK_PKG): $(RTL)/clkgen_pkg.vhd Makefile
 endif
 
 GEN_V = $(GEN)/sharpmz.v
-V_SRC = sim.v $(GEN_V) rtl_v/dpram.v rtl_v/dprom.v $(RTL)/sharpmz_top.sv $(RTL)/tape_image.sv $(RTL)/tape_osd.sv $(RTL)/mz_fdc.sv $(RTL)/mz_qdisk.sv $(RTL)/mz800_border.sv $(RTL)/mz_printer.sv $(RTL)/tape_ddr.sv $(RTL)/direct_start.sv $(RTL)/wd1793.sv $(RTL)/wd1793_mem.v
+V_SRC = sim.v $(GEN_V) rtl_v/dpram.v rtl_v/dprom.v $(RTL)/sharpmz_top.sv $(RTL)/tape_image.sv $(RTL)/tape_osd.sv $(RTL)/tape_autotype.sv $(RTL)/mz_fdc.sv $(RTL)/mz_qdisk.sv $(RTL)/mz800_border.sv $(RTL)/mz_printer.sv $(RTL)/tape_ddr.sv $(RTL)/direct_start.sv $(RTL)/wd1793.sv $(RTL)/wd1793_mem.v
 
 MIFS    = $(wildcard $(RTL)/software/mif/*.mif)
 MIF_HEX = $(patsubst $(RTL)/software/mif/%.mif,software/mif/%.mif.hex,$(MIFS))
