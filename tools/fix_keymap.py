@@ -26,7 +26,8 @@ FF means no key. In the MZ-80K/80C/1200/80A banks bit 3 also presses SHIFT (keym
    is down. The characters come from tools/keymap_pc_chars.json (bank -> character -> [matrix position,
    shift], made by tools/keymap_measure.py from what each model's monitor or BASIC prints); a PC key
    whose character a model doesn't have does nothing, and other keys (letters, Return, cursor keys,
-   function keys) keep their Sharp layout entry with SHIFT passed through.
+   function keys) keep their Sharp layout entry with SHIFT passed through, and so do the keypad keys of
+   the models with a keypad (MZ-80A, MZ-80B, MZ-2000).
 
 usage: fix_keymap.py ROMDIR MIFDIR
 """
@@ -165,6 +166,10 @@ PC_KEYS = {0x0E: '`~', 0x16: '1!', 0x1E: '2@', 0x26: '3#', 0x25: '4$', 0x2E: '5%
 cpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'keymap_pc_chars.json')
 chars = json.load(open(cpath)) if os.path.exists(cpath) else {}
 pc = [bytearray([0xFF] * 2048), bytearray([0xFF] * 2048)]
+# The keypad keys of the models with a keypad (MZ-80A, MZ-80B, MZ-2000) stay on it: games read it by position
+# (Space Cruiser steers with keypad 4 and 6, matrix row 2), and it types the same digits as the main row.
+KEYPAD = [0x70, 0x69, 0x72, 0x7A, 0x6B, 0x73, 0x74, 0x6C, 0x75, 0x7D, 0x71, 0x7C, 0x7B, 0x79, EXT | 0x4A]
+TENKEY = (BANK['MZ80A'], 6, 7)
 for bank in range(8):
     have = chars.get(str(bank), {})
     for code in range(256):
@@ -174,6 +179,8 @@ for bank in range(8):
             ch = legend[sh] if sh < len(legend) else (legend[0] if legend and sh == 1 and code >= 0x69 else '')
             if code in (0x12, 0x59):
                 e = sharp                                       # the SHIFT keys themselves
+            elif code in KEYPAD and bank in TENKEY and sharp != 0xFF:
+                e = (sharp & ~SHIFT & 0xFF) | (SHIFT if sh else 0)   # the machine's own keypad key, SHIFT passed
             elif ch and len(legend) == 2:
                 e = have[ch][0] | (have[ch][1] << 3) if ch in have else 0xFF
             elif ch and ch in have:

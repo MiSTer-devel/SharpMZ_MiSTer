@@ -620,6 +620,8 @@ architecture rtl of VideoController is
     signal RENDR_GFX_NEXT        :     std_logic;                            -- Render next 8 bit graphics segment for display.
     signal CGROM_DATA            :     std_logic_vector(7 downto 0);         -- Font Data To Display
     signal DISPLAY_INVERT        :     std_logic;                            -- Invert display Mode of MZ80A/1200
+    signal BOARD80               :     std_logic;                            -- MZ-80K/80C/1200 80-column board (CONFIG(SPLIT80)) switched to 80 columns by a write to E014.
+    signal RENDR_SPLIT80         :     std_logic;                            -- Its layout: column c of row r at r*40 + c/2, odd columns 400h higher.
     signal H_CHR_SHIFT_CNT       :     integer range 0 to 7;
     signal H_GFX_SHIFT_CNT       :     integer range 0 to 7;
     signal H_OSD_SHIFT_CNT       :     integer range 0 to 7;
@@ -1515,7 +1517,10 @@ begin
         end if;
     end process;
     CE_PIXEL <= VID_CE and VIDCLK_DIV;
-    RENDR_VRAM_BADDR <= std_logic_vector(unsigned(RENDR_VRAM_ADDR) + 16#400#) when RENDR_PCG_PHASE = '1' else RENDR_VRAM_ADDR;
+    RENDR_SPLIT80    <= CONFIG(SPLIT80) and MODE_VIDEO_MONO80;
+    -- The 80-column board's layout: the linear address r*80 + c halved is r*40 + c/2, and its bit 0 (an odd column) selects D400.
+    RENDR_VRAM_BADDR <= std_logic_vector(unsigned(RENDR_VRAM_ADDR) + 16#400#) when RENDR_PCG_PHASE = '1' else
+                        RENDR_VRAM_ADDR(0) & RENDR_VRAM_ADDR(10 downto 1) when RENDR_SPLIT80 = '1' else RENDR_VRAM_ADDR;
 
     -- Clock at maximum system speed to minimise transfer time. The video clock is running at two times the display clock and there are 8 clocks per colour word serialisation, this gives 15 cycles to render the next colour word component of the frame.
     -- The character word output is blended with the graphics and OSD planes to create final output.
@@ -3672,6 +3677,7 @@ begin
             if VRESETn='0' then
                 VIDEO_DATA_AVAILn     <= '1';
                 DISPLAY_INVERT        <= '0';
+                BOARD80               <= '0';
                 OFFSET_ADDR           <= (others => '0');
                 GRAM_MODE_REG         <= "00101100";
                 GRAM_R_FILTER         <= (others => '1');
@@ -3975,6 +3981,13 @@ begin
 
                 -- Write registers. Detect the edge of the write signal and action register updates on this edge.
                 if VIDEO_WRni = '0' then
+
+                    -- MZ-80K/80C/1200 80-column board (Crystal Research CP/M 2.23): a write to E014 selects 80 columns, E018 40.
+                    if CS_EXXXn = '0' and CONFIG(SPLIT80) = '1' and VIDEO_ADDRi(10 downto 0) = "000" & X"14" then
+                        BOARD80               <= '1';
+                    elsif CS_EXXXn = '0' and VIDEO_ADDRi(10 downto 0) = "000" & X"18" then
+                        BOARD80               <= '0';
+                    end if;
 
                     -- 0xB2 set parameters. Store parameters in a long word to be used by the graphics command processor.
                     -- The parameter word is 128 bit and each write to the parameter word shifts left by 8 bits and adds the new byte at bits 7:0.
@@ -4388,7 +4401,7 @@ begin
                         MODE_VIDEO_MZ80K          <= '1';
 
                         -- The MZ-80K is a mono machine, so only consider the 40/80 column flag as extensions to the original hardware were made for CP/M.
-                        if VIDEO_MODE_REG(4) = '0' then
+                        if VIDEO_MODE_REG(4) = '0' and (CONFIG(SPLIT80) = '0' or BOARD80 = '0') then
                             MODE_VIDEO_MONO       <= '1';
                         else
                             MODE_VIDEO_MONO80     <= '1';
@@ -4398,7 +4411,7 @@ begin
                         MODE_VIDEO_MZ80C          <= '1';
 
                         -- The MZ-80C is a mono machine, so only consider the 40/80 column flag as extensions to the original hardware were made for CP/M.
-                        if VIDEO_MODE_REG(4) = '0' then
+                        if VIDEO_MODE_REG(4) = '0' and (CONFIG(SPLIT80) = '0' or BOARD80 = '0') then
                             MODE_VIDEO_MONO       <= '1';
                         else
                             MODE_VIDEO_MONO80     <= '1';
@@ -4408,7 +4421,7 @@ begin
                         MODE_VIDEO_MZ1200         <= '1';
 
                         -- The MZ-1200 is a mono machine, so only consider the 40/80 column flag as extensions to the original hardware were made for CP/M.
-                        if VIDEO_MODE_REG(4) = '0' then
+                        if VIDEO_MODE_REG(4) = '0' and (CONFIG(SPLIT80) = '0' or BOARD80 = '0') then
                             MODE_VIDEO_MONO       <= '1';
                         else
                             MODE_VIDEO_MONO80     <= '1';

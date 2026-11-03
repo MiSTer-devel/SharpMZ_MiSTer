@@ -20,6 +20,7 @@
 #   ipl_mz2000    MZ-2000: the MZ-2200 IPL reaches "IPL is looking for a program" (frame hash at 300)
 #   tape_direct   MZ-700, OSD Tape Image Start: Direct: BASIC starts from the tape image by itself, LOAD, LIST
 #   fdd_mz80a     MZ-80A: F, Return: the floppy interface ROM boots SA-6510 Disk BASIC from drive 1 (idealine.info image)
+#   fdd_mz80k     MZ-80K: GOTO$F000, Return: the MZ-80FIO ROM boots Replenished BASIC (../software/mz80k-disks), DIR
 #   tape_mz80b    MZ-80B: the IPL loads SB-5520 BASIC from a tape image (../software/mz80b) to "Ready"; frame hash.
 #   tape_mz2000   MZ-2000: the MZ-2200 IPL loads Gang Man (../software/mz2200) to its title; frame hash.
 #                 Both skipped when the tapes aren't there, and with QUICK=1 (the MZ-80B model is slow to simulate).
@@ -254,6 +255,15 @@ if [ -f "$SA6510" ]; then
     ( $BIN --model mz80a --fdd "$OUT/fdd_mz80a.dsk" --fdd-readonly --type '150:F\n' --type '300:\n' --stop-at-frame 700 \
           --ascii-end --quiet > "$OUT/fdd_mz80a.txt" 2> "$OUT/fdd_mz80a.log" ) &
     pids+=($!); names+=("fdd_mz80a")
+fi
+# MZ-80K floppy (MZ-80FIO): GOTO$F000 runs the interface ROM, Return boots drive 1: Replenished BASIC from the
+# user's MZ-80K disk archive (an FM D88 made by tools/edsk2d88.py), then DIR lists the disk as CSCP does.
+K80=../software/mz80k-disks/d88/Dsk14.d88
+if [ -f "$K80" ]; then
+    cp "$K80" "$OUT/fdd_mz80k.d88"
+    ( $BIN --model mz80k --fdd "$OUT/fdd_mz80k.d88" --fdd-readonly --type '100:GOTO$F000\n' --type '300:\n' \
+          --type '700:DIR\n' --stop-at-frame 900 --ascii-end --quiet > "$OUT/fdd_mz80k.txt" 2> "$OUT/fdd_mz80k.log" ) &
+    pids+=($!); names+=("fdd_mz80k")
 fi
 RB=../software/idealine/mz-80b/rb_DSK/DSK
 for t in "fdd_mz80b DISK23 900" "fdd_mz80b_cpm DISK01 1200"; do

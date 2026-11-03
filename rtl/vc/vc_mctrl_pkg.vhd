@@ -73,6 +73,7 @@ package vc_mctrl_pkg is
     constant MZ_A            : integer := 12;                            -- Machine is an MZ1200/MZ80A Series
     constant MZ_B            : integer := 13;                            -- Machine is an MZ2000/MZ80B Series
   --constant MZ_80B          : integer := 14;                            -- Machine is an MZ2000/MZ80B Series
+    constant SPLIT80         : integer := 14;                            -- MZ-80K/80C/1200 80-column board: E014/E018 select 80/40 columns, even columns at D000, odd at D400.
     constant MZ_K            : integer := 15;                            -- Machine is an MZ80K/MZ80C/MZ1200/MZ80A/MZ700/MZ800/MZ1500 Series
 
     -- Type of display to emulate.

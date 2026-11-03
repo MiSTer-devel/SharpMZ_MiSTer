@@ -295,6 +295,29 @@ test('F02', 'MZ80A', 'MZ-80A floppy: F, Return boots SA-6510 Disk BASIC from dri
      files=[('s', 1, f'{SW}/idealine/mz-80a/SA-6510bootdisk/SA-6510.DSK')], reset=True,
      steps=[('wait', 4), ('type', 'F\n'), ('wait', 2), ('type', '\n'), ('wait', 12), ('shot', 'basic')])
 
+# MZ-80K floppy (MZ-80FIO, T3444M): GOTO$F000 runs the interface ROM, Return boots drive 1. Disks from the user's
+# MZ-80K archive (software/mz80k-disks), made FM D88 by tools/edsk2d88.py; CSCP shows the same screens.
+K80D88 = os.path.join(SW, 'mz80k-disks/d88')
+test('F06', 'MZ80K', 'MZ-80K floppy: Replenished BASIC boots; DIR, LOAD "LOTTO", LIST',
+     files=[('s', 1, f'{K80D88}/Dsk14.d88')], opts=[PC_KEYS], reset=True,
+     steps=[('wait', 3), ('pctype', 'GOTO$F000\n'), ('wait', 2), ('pctype', '\n'), ('wait', 8), ('shot', 'basic'),
+            ('pctype', 'DIR\n'), ('wait', 4), ('shot', 'dir'), ('pctype', 'LOAD "LOTTO"\n'), ('wait', 6),
+            ('pctype', 'LIST\n'), ('wait', 3), ('shot', 'list')])
+test('F07', 'MZ80K', 'MZ-80K floppy: SAVE a BASIC line to disk, NEW, LOAD it back, DIR',
+     files=[('s', 1, f'{K80D88}/Dsk14.d88')], opts=[PC_KEYS], reset=True,
+     steps=[('wait', 3), ('pctype', 'GOTO$F000\n'), ('wait', 2), ('pctype', '\n'), ('wait', 8),
+            ('pctype', '10 PRINT "HELLO"\n'), ('wait', 1), ('pctype', 'SAVE "T1"\n'), ('wait', 6), ('pctype', 'NEW\n'),
+            ('wait', 1), ('pctype', 'LOAD "T1"\n'), ('wait', 6), ('pctype', 'LIST\n'), ('wait', 1), ('pctype', 'DIR\n'),
+            ('wait', 4), ('shot', 'saved')])
+test('F08', 'MZ80K', 'MZ-80K floppy: Antc06 boots its game (Wave 1 instructions)',
+     files=[('s', 1, f'{K80D88}/Antc06.d88')], opts=[PC_KEYS], reset=True,
+     steps=[('wait', 3), ('pctype', 'GOTO$F000\n'), ('wait', 2), ('pctype', '\n'), ('wait', 10), ('shot', 'game')])
+# OSD MZ-80K 80-Col Board: the 80-column board of Crystal Research's CP/M 2.23 (E014 selects 80 columns, odd columns at
+# D400). The CP/M disks need the MZ-1200 (they read E00C, the memory swap); Cpm01 starts dBASE II after the banner.
+test('F09', 'MZ1200', 'MZ-80K 80-column board: CP/M 2.23 boots in 80 columns, dBASE II',
+     files=[('s', 1, f'{K80D88}/Cpm01.d88')], opts=[PC_KEYS, osd('MZ-80K 80-Col Board=On (CP/M)')[0]], reset=True,
+     steps=[('wait', 3), ('pctype', 'GOTO$F000\n'), ('wait', 2), ('pctype', '\n'), ('wait', 25), ('shot', 'cpm')])
+
 # OSD Keyboard Layout: PC. Every punctuation key, typed as on a US PC keyboard, shows its own character
 # (characters the model doesn't have type nothing; tools/keymap_measure.py --verify checks the same in the sim).
 PCTEXT = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'
@@ -404,7 +427,7 @@ test('P03', 'MZ700', 'MZ-700 BASIC: LIST/P, then PRINT/P "HELLO" (the sim seemed
 # MZ-5Z001 (either copy, software/mz1500 or the collection's BASIC/MZ-1500) rejects as an illegal filemode, probably a Quick
 # Disk file type kept in a tape conversion. As type 05 it loads, and stops at "Illegal data error in 150", the same in
 # mz1500emu, so the file needs another BASIC or is damaged; the core matches the emulator. Maze Land (Enix) loads three ways.
-test('Z01', 'MZ1500', 'MZ-1500: MZ-5Z001 then Zulpoko as type 05 AUTO RUN: "Illegal data error in 150", as mz1500emu',
+test('Z01', 'MZ1500', 'MZ-1500: MZ-5Z001 then Zulpoko as type 05 AUTO RUN: its title (PRESS [SPACE] KEY TO GAME START)',
      files=[('s', 0, 'gen:zulpoko')], opts=[FAST_TAPE(6)], reset=True,
      steps=[('wait', 6), ('type', 'C'), ('wait', 60), ('shot', 'run')])
 test('A01', 'MZ1500', 'MZ-1500 PSG stereo: left PSG 440 Hz, right PSG 880 Hz (HDMI audio from the capture card)',
