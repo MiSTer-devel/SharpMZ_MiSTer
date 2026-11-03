@@ -103,6 +103,7 @@ architecture rtl of video_vc is
     constant V2_NORMAL80     : natural := 17;
     constant V2_COLOUR       : natural := 18;
     constant V2_COLOUR80     : natural := 19;
+    constant V2_SPLIT80      : natural := 14;
     constant V2_OPT_GRAMI    : natural := 43;
     constant V2_OPT_GRAMII   : natural := 44;
     constant V2_OPT_GRAMIII  : natural := 45;
@@ -185,6 +186,7 @@ begin
         V2_CONFIG(V2_NORMAL80)    <= CONFIG(NORMAL80);
         V2_CONFIG(V2_COLOUR)      <= CONFIG(COLOUR);
         V2_CONFIG(V2_COLOUR80)    <= CONFIG(COLOUR80);
+        V2_CONFIG(V2_SPLIT80)     <= CONFIG(SPLIT80);
         -- Graphics options fitted on every machine that has them.
         V2_CONFIG(V2_OPT_GRAMI)   <= '1';
         V2_CONFIG(V2_OPT_GRAMII)  <= '1';
@@ -203,8 +205,8 @@ begin
     -- Character generator ROM bank (layout of rtl/software/mif/combined_cgrom.mif).
     CG_BANK <= "0000" when CONFIG(MZ80K)  = '1' else
                "0001" when CONFIG(MZ80C)  = '1' else
-               "0010" when CONFIG(MZ1200) = '1' else
-               "0011" when CONFIG(MZ80A)  = '1' else
+               "0010" when CONFIG(MZ1200) = '1' and CONFIG(MZ1200_JAPAN) = '1' else   -- MZ-1200: Japanese CG (Region: Japan),
+               "0011" when CONFIG(MZ1200) = '1' or CONFIG(MZ80A) = '1' else          -- else the European one, the MZ-80A's
                "1010" when CONFIG(IS_MZ1500) = '1' or CONFIG(REGION_JAPAN) = '1' else   -- before MZ700: the MZ-1500 also sets it;
                                                                                      -- the Japanese MZ-700 has the MZ-1500's CG (MAME mz700fon.jpn)
                "0100" when CONFIG(MZ700)  = '1' else

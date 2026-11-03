@@ -12,15 +12,83 @@ Design notes are in `docs/design.md`, and the simulation and tests in `verilator
 | Clocks | Done. One 70.9376 MHz clk_sys with accumulator clock enables (`rtl/clkgen.vhd`); no signal-as-clock logic. Turbo is capped at clk_sys/2. |
 | Video | Done. The author's v2 VideoController on clk_sys (`rtl/vc/`), native timing only (MZ-700/800 50 Hz, the others 60 Hz), scaled by the framework. |
 | Tape | Done. MZF to CMT, direct to RAM, and a Tape Image slot (`rtl/tape_image.sv`) that loads multi-program MZTs, saves into a blank image and does MZ-80B APSS. |
-| MZ-80K/80C/1200/80A/700 | Working in simulation. On hardware: all boot; MZ-700 tape and floppy (`J F000`) work. |
+| MZ-80K/80C/1200/80A/700 | Working in simulation. On hardware: all boot; MZ-700 tape and floppy (`J F000`) work; MZ-80A floppy (`F`); MZ-80K/80C/1200 floppy through the MZ-80FIO (`GOTO$F000`), and Crystal Research CP/M 2.23 in 80 columns on the MZ-1200 with OSD MZ-80K 80-Col Board. MZ-1200 character set by Region (Europe: the MZ-80A's; Japan: kana). |
 | MZ-800 | Working in simulation against mz800emu: IPL, 9Z-504M monitor, memory map, MZ-700/800 modes, all graphics modes, PSG, Z80 PIO, tape, floppy and CP/M. 12 native games and 84 of 94 disk images match mz800emu. On hardware: graphics tests, games from tape images (Cauldron II, Cybernoid), CP/M games from disk. |
 | MZ-1500 | New (from mz800emu's MZ-1500): 9Z-502M ROMs, PCG (3 planes, palette, priority), 2 PSGs in stereo, Z80 PIO, Quick Disk (`rtl/mz_qdisk.sv`, .qdf/.mzq, read and write). Boots to the IPL and loads Lode Runner from Quick Disk with its PCG title screen pixel-identical to mz1500emu. On hardware: Lode Runner, Nintendo Tennis, and two-sided Battle City, Grobda, Milky Way and Batten Tanuki (side B swapped by the MGL) reach their title or demo; MZ-5Z001 BASIC formats a Quick Disk, saves, loads and runs a program (W01); 8 Quick Disk titles archived as two tapes run from disks made by `tools/mzf2qdf.py` (G01-G08). |
-| Floppy | MZ-700/800 interface (`rtl/mz_fdc.sv`) with two drives from Extended DSK images. CP/M 1.3, 1.4, 2.3 and 4.1 boot in simulation. MZ-700: the MZ-1E05 ROM at F000 comes with the interface; `J F000` boots a disk made by `tools/make_boot_disk.py`. MZ-80B: the IPL boots SB-6511 Disk BASIC and CP/M 2.2 from the idealine.info images. |
+| Floppy | MZ-700/800 interface (`rtl/mz_fdc.sv`) with two drives from Extended DSK images. CP/M 1.3, 1.4, 2.3 and 4.1 boot in simulation. MZ-700: the MZ-1E05 ROM at F000 comes with the interface; `J F000` boots a disk made by `tools/make_boot_disk.py`. MZ-80B: the IPL boots SB-6511 Disk BASIC and CP/M 2.2 from the idealine.info images. MZ-80A: its interface ROM boots SA-6510 Disk BASIC. MZ-80K/80C/1200: the MZ-80FIO (T3444M sequencer in `mz_fdc` k_mode, ports F8-FB, MZ80K_FDIF at F000) reads the FM D88s that `tools/edsk2d88.py` makes from the MZ-80K archive. |
 | MZ-80B | Boots the IPL; loads SB-5520 BASIC from a tape image and SB-6511 Disk BASIC / CP/M 2.2 from floppy (sim and hardware). |
 | MZ-2000 | Real IPL (MAME mz20ipl.bin) and MZ-2000 character ROM with katakana (MAME font.bin, hand-made, BAD_DUMP). Loads Gang Man and Zero Fighter (colour) from tape and boots a TF-DOS D88 disk with Japanese text, in the sim and on hardware. |
-| FPGA | Latest build (6e70d0e, clean) meets timing (core clock +2.1 ns): about 18,750 ALMs (45%), 74% of block memory bits (the RAM disk adds 64 KB). Built on cottageubuntu or locally in the Quartus container. Built on cottageubuntu (Quartus 17.0.2); always clean-build (`rm -rf db incremental_db`). |
+| FPGA | Release build 20261102 (bd3eb62, clean, misterubuntu) meets timing (core clock +1.14 ns). Earlier figure (6e70d0e, +2.1 ns): about 18,750 ALMs (45%), 74% of block memory bits (the RAM disk adds 64 KB). Built on cottageubuntu or locally in the Quartus container. Built on cottageubuntu (Quartus 17.0.2); always clean-build (`rm -rf db incremental_db`). |
 | Sim = hardware | `rtl/sharpmz_top.sv` holds everything between hps_io and video_mixer, and both `SharpMZ.sv` and the sim (`verilator/sim.v`) use it. The sim takes the OSD status word (`--osd "Name=Value"`, by the CONF_STR names) and Main-style downloads. `tools/osd_sweep.py` runs every value of every OSD option; `tools/mister_test.py` names options the same way (`tools/sharpmz_osd.py`). |
-| Regression | `make test`: 48 tests (boot, keyboard, MZ-800 graphics, tape, floppy, Quick Disk, printer, Load Direct, sound), some needing `software/` (see `verilator/README.md`). All pass. Hardware suite: `tools/mister_test.py`, MGL tests T01-T31, Q, B, C, W, G, H, K, V and L01-L12 (2026-10-08). Keys go through `tools/mister_keys.py`, a uinput keyboard kept on the SD card at `/media/fat/tools/` (no mrext needed). Builds: `misterubuntu` (~7 min) or the local Quartus container. |
+| Regression | `QUICK=1 ./run_tests.sh`: 53 pass (2026-11-02, with `fdd_mz80k`); `make test`: 59 tests (2026-10-24) (boot, keyboard, MZ-800 graphics, tape, floppy, Quick Disk, printer, Load Direct, sound), some needing `software/` (see `verilator/README.md`). All pass. Hardware suite: `tools/mister_test.py`, 85 tests (MGL tests T01-T31, Q, B, C, W, G, H, K, V, L, F01-F09, ...); full run on the 20261102 release build 2026-11-02 (see Handoff). Keys go through `tools/mister_keys.py`, a uinput keyboard kept on the SD card at `/media/fat/tools/` (no mrext needed). Builds: `misterubuntu` (~7 min) or the local Quartus container. |
+
+## Handoff (2026-11-02)
+
+- **Release:** SharpMZ_20261102: MiSTer-devel PR #17 opened 2026-11-02 from `alanswx:sharpmz-20261102` (its
+  `releases/SharpMZ_20261102.rbf` is standard-core's `releases/SharpMZ_20261102c.rbf`, md5 2c2b1755). Not merged yet.
+  Changes since 20261024: MZ-80K floppy (MZ-80FIO), OSD MZ-80K 80-Col Board, Region on the MZ-1200, OSD pages, Print
+  Screen for tape details, PC number pad on the machine keypad. Settings version stays `v,6` (new OSD bit 60 only).
+  Tester builds on standard-core: 20261102 (floppy), 20261102b (80-column board), 20261102c (Region; the release).
+- **Full hardware suite on 20261102c (2026-11-02, mister126, `out/hwfull_rel`):** 347 screenshots, compared with the
+  20261024-era runs (`out/mister`, a mix of runs; `tools/mister_refs.json` is stale: refresh it with `--update-refs`
+  from a good run). Differences were animation timing, except: about ten tape tests (MZ-1500 C03/C05/C12/C17, MZ-800
+  H01, MZ-80B T21, MZ-80K S01, MZ-2000 T24) stayed at the IPL's "looking for a program" in the long run and all
+  loaded on a rerun. T21 failed twice in long runs, passed four times alone or after T19/T20 (both fitter seeds),
+  and loads in the sim (`tape_mz80b` hash matches); 20261101 also passed it. Intermittent, cause unknown: watch for it
+  (a tape image mounted before the reset not being ready?). Known and unchanged: T10, T19, T20 (as the October
+  runs), R03 (a remembered MZ-700 monitor no longer lands on the MZ-80K, as 20261024), K01/K04 "File mode error" and
+  K02 (only Flicky's loader) on the MZ-2000, K13/K14 (same as earlier runs).
+- **Previous release:** SharpMZ_20261024, PR #16 merged 2026-10-24 (`releases/SharpMZ_20261024.rbf`, CONF_STR `v,6`); before it
+  #15 (20261015). Release recipe: a branch `sharpmz-YYYYMMDD` on MiSTer-devel's `master` with one commit whose tree
+  is `standard-core` except `releases/`, which keeps only the official release `.rbf` files plus the new one (tester
+  builds stay on `standard-core`). Check the PR deletes nothing (`git diff --name-status origin/master`).
+- **Settings version 6:** the Model list was reordered by date (MZ-80K, 80C, 80A, 1200, 80B, 2000, 700, 800, 1500);
+  `v,6` makes Main drop older saved settings. `tools/mister_test.py` writes `<test>_v6.CFG`; `MODEL_ORDER=old` for
+  builds before 20261016.
+- **MGL `<option>` (Main):** merged in Main_MiSTer master as e8e915a (`<option name= value= [page=] [default="1"]/>`,
+  by label only; errors shown as an MGL info item). Not in a Main release yet (latest MiSTer_20261010). Our branch:
+  `alanswx/Main_MiSTer` `mgl-option`; worktrees `~/dev2/Main_MiSTer_mgl` (the patch) and `~/dev2/Main_MiSTer_up`
+  (upstream master, built for testers). Build Main on misterubuntu with
+  `PATH=/usr/local/gcc-arm-10.2-2020.11-x86_64-arm-none-linux-gnueabihf/bin:$PATH make`.
+- **Per-machine MGLs** are optional, in `mgl/` (not `releases/`, so the updater doesn't install them); README
+  "Optional: one menu entry per machine" explains them and `same_dir`. Once a Main with `<option>` is released they
+  could move to `releases/`.
+- **Standards:** `~/dev2/osd-standard.md` and `tape-standard.md` were reviewed; decision: SharpMZ does not conform
+  for now. The questions for the author are in `docs/osd-standard-questions.md`.
+- **Waiting on testers** (tester zip `out/SharpMZ_20261021_testers.zip`; 20261024 differs only by `v,6`):
+  - Danjuro: Tiny Xevious speed (VRAM wait), Batten Tanuki sound, MZ-80K with a remembered user ROM.
+  - EeDee: (1) the ~3 s before a remembered ROM takes effect: by design (Main sends `FC` files before the status, so
+    `rtl/sharpmz_top.sv` stages ROMs from the first 3 s and copies them to the model's slot); could try ~1.5 s on
+    hardware. (2) Reset after removing a tape: fixed in 1085be8 (TAPE_CLEAR; sim only, `--tape-unmount`); ask how he
+    unmounted and whether disks do it too. (3) "Tape Image doesn't like me": needs machine, file and steps.
+  - EeDee (2026-10-25, `releases/SharpMZ_20261025.rbf`, tester zip `out/SharpMZ_20261025_testers.zip`): OSD pages without blank lines, in his order (Machine, Tape,
+    Floppy, ROM and RAM, Display, Printer), Aspect ratio under Display; Print Screen shows the tape details (checked
+    on mister126; OSD layout not seen on hardware, the capture card was busy). Scroll Lock can't be used: Main keeps
+    it for the keyboard emulation mode unless the core has a PS/2 controller. MZ-2000 MZFs: most failing ones are
+    37-62 KB loading at 0000; the IPL loads at 8000 and only 8000-FFFF is RAM in IPL mode (as MAME), so they can't
+    load through the IPL (sim: Dawn Patrol loads, then the IPL is back at "looking for a program"). The ones under
+    32 KB run in the sim: Space Cruiser waits at a katakana prompt (C colour / G green CRT), Polaris asks 1 monitor /
+    2 colour TV, Star Stream starts. MZ-1Z001/1Z002.mzf have no header (use the .mzt). MZ-80K floppy: done 2026-11-02 (in the 20261102 release).
+  - Danjuro (2026-10-26): "MZ-80A and MZ-1200 are the same machine". Sharp's MZ-1200 owner's manual (mz-80a.com):
+    monitor SP-1002, 1 KB VRAM, kana CG, E00C/E010 swap and E014/E015 reverse, no E200 scroll. So the MZ-1200 stays
+    and now has the Japanese CG (MAME 80kcgj.rom, CRC 7767f11e, `MZ1200_CGROM.rom`; `releases/SharpMZ_20261026.rbf`, tester zip `out/SharpMZ_20261026_testers.zip`,
+    checked in the sim and on mister126). Left as the MZ-80A's (as Takeda's CSCP has them): the hblank VRAM wait and
+    E008 bit 7, 2 KB VRAM (the manual says 1 KB; SP-1002 uses 1 KB).
+  - EeDee (2026-10-31): Space Cruiser (MZ-2000) keys 4 and 6 didn't steer: it reads the keypad (row 2) and Keyboard
+    Layout PC put the PC keypad on the main-row digits; now the keypad stays on the machine's keypad on the
+    MZ-80A/80B/2000 (sim: MZ-80A PC layout types 450 from the keypad; the game itself not run). OSD top blank line
+    removed. `releases/SharpMZ_20261101.rbf`, tester zip `out/SharpMZ_20261101_testers.zip` (asks EeDee about Door
+    Door). Open: Door Door MkII (MZ-1500) "music note holds at Game Over": the game plays on the PSG at F2 and
+    re-arms 8253 counter 0 (mode 0, E008=1) from its interrupt; not reproduced (RTL sim too slow to reach Game Over;
+    CSP falls back to the IPL menu at the game's "turn the QD over" prompt).
+  - Nobody has tried the 20261102 features yet: MZ-80K floppy, the 80-column board (CP/M on the MZ-1200) and Region on
+    the MZ-1200 (Danjuro asked for the kana CG; it is now Region: Japan, Europe being the default).
+- **Hardware hosts:** mister126 is the test MiSTer (if ssh refuses the key: remount `/` rw, append
+  `~/.ssh/id_ed25519_mister.pub` to `/root/.ssh/authorized_keys`, remount ro). mister14 runs someone's custom Main
+  (`games/DoradoRTL/...`); a `mister_test` run there restarts the stock Main, so ask first. L18 (Auto Load) missed
+  once in a batch on 20261021 and passed three reruns: watch it.
+- **Sim:** `--tape-unmount FRAME`; `--osd-pulse` now lasts ~1 ms of clocks (a Reset pulse used to stop the video and
+  hang the sim). Full regression: 59 tests pass (tape_basic/tape_direct got 400 more frames for the VRAM wait).
 
 ## Open work
 
@@ -268,7 +336,16 @@ Working well for testers: Snake & Snake (MZ-700), Donkey Gorilla in play, MZ-80K
 - [x] Replacement ROMs persist: Load System ROM and Load CGROM are remembered OSD files (`FC`), so Main reloads the last one at every core start, and the machine is held and reset while a ROM image loads, so it starts on it. `boot.rom` in games/SharpMZ loads too. On hardware: with 80ktc chosen once, the core starts in it ("System Monitor"). Found on the way: Load System RAM and Load CGROM wrote over the monitor ROM (Main gives every file address 0; the CONF_STR addresses only count in DDR); they now go to their own regions.
 - [x] Tape position on screen (OSD Tape Messages, on by default): `rtl/tape_osd.sv` draws a line at the bottom of the picture for 150 frames when the tape image has a record ready (`TAPE 2/5 NAME`), reaches the end, saves or is full, in the MZ-700's characters (`tools/make_osd_font.py`). MiSTer's info popups (CONF_STR `I,`) only show fixed strings, so they can't name the program. On hardware: TAPE 1/2 S-BASIC on mounting, TAPE 2/2 R.P.S. once BASIC is in (L16). The first message comes a few seconds after the core starts, when the record has loaded.
 - [x] MZ-80A floppy: its interface has the FDC at D8-DD as the MZ-700's, so mz_fdc now runs on the MZ-80A with its interface ROM at F000 (MZ80A_FDIF.rom, banks 1Ah-1Bh, `tools/patch_roms.py`). The ROM doesn't poll: its INI loop runs through an opcode fetch at F3FE (F7FE), and the interface holds the CPU in WAIT there while a command runs and no byte is ready (`mz_fdc` wait_req, `sharpmz.vhd`). `F` at the monitor, Return: SA-6510 Disk BASIC boots (sim test fdd_mz80a; hardware F02).
-- [ ] MZ-80K floppy: a different interface (ports F8-FA, motor by IN (C), DRDY/CRDY/RQM flags; ROM and source in `software/idealine/mz-80k/mz80kfdif`), so it needs its own controller model. The old core never had it either.
+- [x] MZ-80K floppy (2026-11-02): `mz_fdc` k_mode on the MZ-80K/80C/1200: the MZ-80FIO ports F8-FB (B of IN (C) is drive, motor, TND; EXT_IO_ADDR_HI from sharpmz.vhd) and a T3444M command sequencer driving the wd1793 (restore, seek, read/write sector, next sector until TND, Write ID fills the 16 sectors with FF). MZ80K_FDIF.rom at F000 (banks 05h/0Ch/13h) while the interface is present. Sim test fdd_mz80k (boot, DIR); hardware F06-F08 on mister126 (DIR, LOAD, SAVE/LOAD/DIR, Antc06) match CSCP. Write ID untested.
+- [x] MZ-80K 80-column board (2026-11-02): OSD MZ-80K 80-Col Board (status[60], CONFIG(SPLIT80), reg3 bit 5). The Cpm disks' BIOS (Crystal Research CP/M 2.23, 1983) writes E014 for 80 columns and E018 for 40, and puts column c of row r at D000 + r*40 + c/2, odd columns +400h. VideoController: BOARD80 set/cleared by those writes, MONO80 while set, render address = linear address halved with bit 0 as bit 10. Sim and hardware F09: Cpm01 boots CP/M in 80 columns and starts dBASE II. Lowercase showed as katakana (MZ-1200 Japanese CG): Region now applies to the MZ-1200 (Europe = MZ-80A CG bank 3, the default; Japan = the kana CG, bank 2; CONFIG(MZ1200_JAPAN)).
+  - Disks (2026-11-02): `software/mz80k-disks/` (80k_01..10 zips from the user: 76 CPDRead EDSK images, 35/40
+    tracks, 2 sides, 16 x 128-byte FM sectors, IDs 1-16, side 1 IDs say head 0; some sectors unread). The EDSK
+    files don't mark FM and their track size table is wrong (1100h for 900h); `tools/edsk2d88.py` writes FM D88s
+    (`software/mz80k-disks/d88/`). CSP (`mz80k`, MZ-80FIO + T3444M, ROMs SP1002 / MZ80K_cgrom / MZ80K_FDIF as
+    IPL/FONT/FDIF.ROM, `GOTO$F000`, Return) boots Antc06 (German game), Dsk01/02/15 (BAKER-QUICK-DOS 2.5),
+    Dsk08 (VOL.MASTER menu), Dsk14 (Replenished BASIC). The Cpm disks read E00C (MZ-1200/80A swap) and boot on CSP's
+    mz1200, but every second character is lost (they need the 80-column board, now the OSD MZ-80K 80-Col Board). Reference model: CSP `src/vm/t3444a.cpp`,
+    `src/vm/mz80k/mz80fio.cpp`. `80k_10/80K_FD_DISASS.rom` is a 4 KB ROM starting like MZ80K_FDIF (not used yet).
 - [ ] Load real tapes through MiSTer's audio input (upstream issue #7): the core leaves ADC_BUS unused; other cores feed the ADC's tape signal (sys/ltc2308) into their cassette input. Feed it to the CMT read bit.
 - Already done in the release (the tester had an older build): OSD Reset works (fixed in 20261009b); floppies work on the MZ-700 (`J F000`), MZ-800, MZ-80B and MZ-2000 (mount, then reset).
 

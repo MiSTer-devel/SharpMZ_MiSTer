@@ -51,7 +51,7 @@ Needs GHDL 5.x, Verilator 5.x and Python 3 (`brew install ghdl verilator`). **Ru
 | `--direct-start` | After a direct load, start the program as the core's Load Direct: Start Program does (boot, restore 10F0-11FF, jump to exec). Off by default in the sim, so the tests that type `J` still work. |
 | `--tape-image FILE` | Mount a tape image (S0). Also `--tape-readonly`, `--tape-rewind`. |
 | `--fast-tape STEP` | The OSD Fast Tape step (0–7), not a multiplier. 4 is about 8x; 5 is the fastest (capped at clk_sys/2). |
-| `--fdd FILE` | Extended DSK image in floppy drive A. Also `--fdd-readonly`, and `--fdc-mode auto\|on\|off`. |
+| `--fdd FILE` | Extended DSK or D88 image in floppy drive A (MZ-700/800/80A/80B/2000, and the MZ-80K/80C/1200's MZ-80FIO). Also `--fdd-readonly`, and `--fdc-mode auto\|on\|off`. |
 | `--fdd-b FILE` | Image in floppy drive B (shares `--fdd-readonly`). `--fdd-b-hd` makes drive B answer as unit 2 (OSD Floppy > Drive B Unit: 3rd), CP/M 4.1's 1440K drive C:. |
 | `--ramdisk` | MZ-800 64 KB RAM disk board (OSD MZ-800 RAM Disk). |
 | `--qd FILE` | Quick Disk image (`.qdf` or `.mzq`) in slot S3 (MZ-1500, MZ-800); writes go back to the file. `--qd-readonly` mounts it write protected. |
@@ -92,6 +92,7 @@ Needs GHDL 5.x, Verilator 5.x and Python 3 (`brew install ghdl verilator`). **Ru
 | `rd_mz800` | MZ-800 with `--ramdisk`: `tests/mz800/ramdisk.mzf` writes two bytes to the RAM disk board and reads them back. |
 | `tape_image`, `tape_mz800` | Load from a tape image, on the MZ-700 monitor and the MZ-800 IPL. Slow; skipped with `QUICK=1`. |
 | `fdd_cpm`, `fdd_hry` | CP/M 4.1 boots from disk and runs DIR; a games disk starts its file manager (pixel-identical to mz800emu). They need the images in `../software/dsk/` (not in the repository) and are skipped otherwise. |
+| `fdd_mz80k` | MZ-80K floppy (MZ-80FIO): `GOTO$F000`, Return boots Replenished BASIC from `../software/mz80k-disks/d88/Dsk14.d88` (a D88 made by `../tools/edsk2d88.py`) and DIR lists its files. Skipped without the image. |
 
 The test programs are in `tests/mz800/`, with the Python scripts that generate them.
 

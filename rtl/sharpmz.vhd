@@ -117,6 +117,7 @@ entity sharpmz is
         AUDIO_PSG_R_O         : out    std_logic_vector(13 downto 0);   -- MZ-1500 right PSG; the MZ-800 PSG otherwise.
         --------------------          External I/O (floppy controller)              ------------------------------
         EXT_IO_ADDR           : out    std_logic_vector(7 downto 0);            -- Z80 I/O port address.
+        EXT_IO_ADDR_HI        : out    std_logic_vector(7 downto 0);            -- A15-A8 of an I/O cycle (B for IN r,(C)).
         EXT_IO_RD             : out    std_logic;                               -- Z80 I/O read cycle (IORQ, RD, not M1).
         EXT_IO_WR             : out    std_logic;                               -- Z80 I/O write cycle.
         EXT_IO_DOUT           : out    std_logic_vector(7 downto 0);            -- Z80 data out.
@@ -1233,6 +1234,7 @@ begin
     CMT_CTRL                 <= MZ_CMT_BUS_IN;
     CMT_DEBUG                <= MZ_CMT_DEBUG_LEDS(31 downto 0);
     EXT_IO_ADDR              <= T80_A16(7 downto 0);
+    EXT_IO_ADDR_HI           <= T80_A16(15 downto 8);
     EXT_IO_RD                <= '1' when T80_IORQ_n = '0' and T80_RD_n = '0' and T80_M1_n = '1' else '0';
     EXT_IO_WR                <= '1' when T80_IORQ_n = '0' and T80_WR_n = '0' and T80_M1_n = '1' else '0';
     EXT_IO_DOUT              <= T80_DO;
